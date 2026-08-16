@@ -4,7 +4,7 @@ Tags: media, images, alt text, compress, resize
 Requires at least: 5.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 3.16.1
+Stable tag: 3.16.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -34,6 +34,10 @@ This plugin connects to the Lookit AI platform (a self-hosted n8n endpoint opera
 The plugin also bundles a local copy of the JSZip library (MIT licensed) for building ZIP downloads in the browser; no external request is made for it.
 
 == Changelog ==
+
+= 3.16.2 =
+* Require permission to edit each attachment before saving alt text, titles, or resized files, so authors cannot change another author's media.
+* Validate resized image bytes before writing them, and accept only image uploads in the Image Resizer.
 
 = 3.16.1 =
 * Enlarged the "Used in" usage popup and bumped its text sizes for easier reading.

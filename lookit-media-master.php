@@ -2,7 +2,7 @@
 /**
  * Plugin Name:  Lookit Media Master
  * Description:  A unified media toolkit: Image Resizer & Compressor, Media Library Resizer, and AI-powered Alt Text Manager (AWS Bedrock vision, via the Lookit AI platform, generates alt text by analysing each image).
- * Version:      3.16.1
+ * Version:      3.16.2
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'LMT_VERSION', '3.16.1' );
+define( 'LMT_VERSION', '3.16.2' );
 define( 'LMT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'LMT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -113,6 +113,46 @@ function lmt_maybe_disable_autoload() {
 function lmt_update_secret_option( $option_name, $value ) {
 	update_option( $option_name, $value );
 	lmt_disable_option_autoload( $option_name );
+}
+
+function lmt_user_can_edit_attachment( $id ): bool {
+	$id = absint( $id );
+	if ( ! $id || 'attachment' !== get_post_type( $id ) ) {
+		return false;
+	}
+	return current_user_can( 'edit_post', $id );
+}
+
+function lmt_decode_image_data_uri( $data, $allowed_mimes = null ) {
+	if ( null === $allowed_mimes ) {
+		$allowed_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+	}
+	if ( ! is_string( $data ) || ! preg_match( '/^data:(image\/(?:jpeg|jpg|png|gif|webp));base64,([A-Za-z0-9\/+=]+)$/s', $data, $m ) ) {
+		return new WP_Error( 'invalid_data_uri', 'Invalid data URI' );
+	}
+	$raw = base64_decode( $m[2], true );
+	if ( false === $raw || '' === $raw ) {
+		return new WP_Error( 'decode_failed', 'Base64 decode failed' );
+	}
+	if ( strlen( $raw ) > 25 * 1024 * 1024 ) {
+		return new WP_Error( 'too_large', 'File too large (> 25 MB)' );
+	}
+	if ( ! function_exists( 'getimagesizefromstring' ) ) {
+		return new WP_Error( 'no_gd', 'Image validation unavailable' );
+	}
+	// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- non-image bytes emit warnings.
+	$info = @getimagesizefromstring( $raw );
+	if ( ! is_array( $info ) || empty( $info['mime'] ) ) {
+		return new WP_Error( 'not_image', 'Decoded data is not a valid image' );
+	}
+	$mime = $info['mime'];
+	if ( ! in_array( $mime, $allowed_mimes, true ) ) {
+		return new WP_Error( 'bad_mime', 'Unsupported image type' );
+	}
+	return array(
+		'raw'  => $raw,
+		'mime' => $mime,
+	);
 }
 
 function lmt_render_settings_page() {
@@ -380,11 +420,24 @@ add_action(
 	require_once ABSPATH . 'wp-admin/includes/media.php';
 	require_once ABSPATH . 'wp-admin/includes/image.php';
 
-	$overrides     = array( 'test_form' => false );
+	$overrides     = array(
+		'test_form' => false,
+		'mimes'     => array(
+			'jpg|jpeg|jpe' => 'image/jpeg',
+			'gif'          => 'image/gif',
+			'png'          => 'image/png',
+			'webp'         => 'image/webp',
+		),
+	);
 	$attachment_id = media_handle_upload( 'file', 0, array(), $overrides );
 
 	if ( is_wp_error( $attachment_id ) ) {
 		wp_send_json_error( array( 'message' => $attachment_id->get_error_message() ), 500 );
+	}
+
+	if ( ! wp_attachment_is_image( $attachment_id ) ) {
+		wp_delete_attachment( $attachment_id, true );
+		wp_send_json_error( array( 'message' => 'Only image uploads are allowed.' ), 400 );
 	}
 
 	wp_send_json_success(
@@ -527,7 +580,7 @@ add_action(
 
 	$id  = intval( $_POST['id'] ?? 0 );
 	$alt = sanitize_text_field( wp_unslash( $_POST['alt'] ?? '' ) );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	update_post_meta( $id, '_wp_attachment_image_alt', $alt );
@@ -551,7 +604,7 @@ add_action(
 
 	$id        = intval( $_POST['id'] ?? 0 );
 	$overwrite = ( '1' === sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) ) );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	$existing = get_post_meta( $id, '_wp_attachment_image_alt', true );
@@ -671,7 +724,7 @@ add_action(
 ),
 		);
 	}
-	$ids = ( new WP_Query( $args ) )->posts;
+	$ids = array_values( array_filter( array_map( 'absint', ( new WP_Query( $args ) )->posts ), 'lmt_user_can_edit_attachment' ) );
 	wp_send_json_success( array(
 'ids' => $ids,
 'total' => count( $ids )
@@ -769,7 +822,7 @@ add_action(
 
 	global $wpdb;
 	$id = intval( $_POST['id'] ?? 0 );
-	if ( ! $id ) { wp_send_json_error( 'Missing attachment id' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	$file       = get_attached_file( $id );
@@ -802,6 +855,9 @@ add_action(
 
 	$items = array();
 	foreach ( (array) $rows as $r ) {
+		if ( ! current_user_can( 'read_post', (int) $r->ID ) ) {
+			continue;
+		}
 		$type_obj = get_post_type_object( $r->post_type );
 		$items[]  = array(
 			'id'     => (int) $r->ID,
@@ -950,7 +1006,7 @@ add_action(
 
 	$id    = intval( $_POST['id'] ?? 0 );
 	$title = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	$result = wp_update_post(
@@ -1027,7 +1083,7 @@ add_action(
     }
 
 	$id = intval( $_POST['id'] ?? 0 );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	$endpoint = get_option( 'lmt_n8n_endpoint', '' );
@@ -1221,7 +1277,7 @@ add_action(
     }
 
 	$id = intval( $_POST['id'] ?? 0 );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	if ( ! wp_attachment_is_image( $id ) ) { wp_send_json_error( 'Not an image' );
@@ -1278,6 +1334,9 @@ add_action(
 	if ( ! $id || ! $data ) { wp_send_json_error( 'Missing data' );
     }
 
+	if ( ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
+    }
+
 	// Validate it's an image attachment
 	if ( ! wp_attachment_is_image( $id ) ) { wp_send_json_error( 'Not an image' );
     }
@@ -1286,14 +1345,11 @@ add_action(
 	if ( ! $file || ! file_exists( $file ) ) { wp_send_json_error( 'File not found' );
     }
 
-	// Strip data URI prefix  e.g. "data:image/webp;base64,"
-	if ( ! preg_match( '/^data:image\/(\w+);base64,(.+)$/s', $data, $m ) ) {
-		wp_send_json_error( 'Invalid data URI' );
+	$decoded = lmt_decode_image_data_uri( $data );
+	if ( is_wp_error( $decoded ) ) {
+		wp_send_json_error( $decoded->get_error_message() );
 	}
-	$ext_from_data = strtolower( $m[1] );
-	$raw           = base64_decode( $m[2] );
-	if ( ! $raw ) { wp_send_json_error( 'Base64 decode failed' );
-    }
+	$raw = $decoded['raw'];
 
 	// Backup original if requested
 	if ( $backup ) {
@@ -1350,6 +1406,8 @@ add_action(
 
 	if ( ! $id || ! $data ) { wp_send_json_error( 'Missing data' );
     }
+	if ( ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
+    }
 	if ( ! wp_attachment_is_image( $id ) ) { wp_send_json_error( 'Not an image' );
     }
 
@@ -1357,12 +1415,11 @@ add_action(
 	if ( ! $src || ! file_exists( $src ) ) { wp_send_json_error( 'Source file not found' );
     }
 
-	if ( ! preg_match( '/^data:image\/webp;base64,(.+)$/s', $data, $m ) ) {
-		wp_send_json_error( 'Expected a WebP data URI' );
+	$decoded = lmt_decode_image_data_uri( $data, array( 'image/webp' ) );
+	if ( is_wp_error( $decoded ) ) {
+		wp_send_json_error( $decoded->get_error_message() );
 	}
-	$raw = base64_decode( $m[1] );
-	if ( ! $raw ) { wp_send_json_error( 'Base64 decode failed' );
-    }
+	$raw = $decoded['raw'];
 
 	// Build a unique .webp filename alongside the original.
 	$dir      = dirname( $src );
@@ -1430,7 +1487,7 @@ add_action(
     }
 
 	$id = intval( $_POST['id'] ?? 0 );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	$file        = get_attached_file( $id );
@@ -1588,7 +1645,7 @@ add_action(
     }
 
 	$id = intval( $_POST['id'] ?? 0 );
-	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
+	if ( ! $id || ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'Permission denied' );
     }
 
 	$endpoint = get_option( 'lmt_n8n_endpoint', '' );
