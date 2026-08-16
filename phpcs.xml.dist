@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<ruleset name="Lookit Media Master">
+    <description>Coding standards for the Lookit Media Master plugin.</description>
+
+    <file>.</file>
+
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/build/*</exclude-pattern>
+
+    <arg name="extensions" value="php"/>
+    <arg name="basepath" value="."/>
+    <arg name="parallel" value="8"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+
+    <!-- Code quality, security, and WordPress conventions (no mandatory doc blocks). -->
+    <rule ref="WordPress-Extra"/>
+
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="lookit-media-master"/>
+            </property>
+        </properties>
+    </rule>
+
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array">
+                <element value="lmt"/>
+                <element value="LMT"/>
+            </property>
+        </properties>
+    </rule>
+    <!-- Existing plugin prefixes are three letters; keep them as-is. -->
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals.ShortPrefixPassed">
+        <severity>0</severity>
+    </rule>
+
+    <!-- The admin UI is a large HTML-in-PHP view; indent sniffs cannot be auto-fixed reliably. -->
+    <rule ref="Generic.WhiteSpace.ScopeIndent">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="Generic.WhiteSpace.DisallowSpaceIndent">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="Universal.WhiteSpace.PrecisionAlignment">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="Universal.WhiteSpace.DisallowInlineTabs">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.Arrays.ArrayIndentation">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.Arrays.MultipleStatementAlignment">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="PEAR.Functions.FunctionCallSignature">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="Squiz.ControlStructures.ControlSignature">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="Squiz.WhiteSpace.SuperfluousWhitespace">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="NormalizedArrays.Arrays.CommaAfterLast">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="Generic.Formatting.DisallowMultipleStatements">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.PHP.NoSilencedErrors">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.WP.AlternativeFunctions">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.PHP.DiscouragedPHPFunctions">
+        <exclude-pattern>lookit-media-master.php</exclude-pattern>
+    </rule>
+
+    <config name="minimum_wp_version" value="5.9"/>
+
+    <rule ref="PHPCompatibilityWP"/>
+    <config name="testVersion" value="7.4-"/>
+
+    <rule ref="WordPress.NamingConventions.ValidVariableName">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.Files.FileName">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+</ruleset>
