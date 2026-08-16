@@ -1,7 +1,7 @@
 === Lookit Media Master ===
 Contributors: lookitdesign
 Tags: media, images, alt text, compress, resize
-Requires at least: 5.8
+Requires at least: 5.9
 Tested up to: 7.0
 Requires PHP: 7.4
 Stable tag: 3.16.1
