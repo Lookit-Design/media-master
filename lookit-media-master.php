@@ -242,7 +242,7 @@ function lmt_render_settings_page() {
 add_action(
     'admin_enqueue_scripts',
     function ( $hook ) {
-	if ( $hook !== 'toplevel_page_lookit-media-master' ) { return;
+	if ( 'toplevel_page_lookit-media-master' !== $hook ) { return;
     }
 
 	wp_enqueue_script( 'jszip', LMT_PLUGIN_URL . 'assets/jszip.min.js', array(), '3.10.1', true );
@@ -271,13 +271,13 @@ add_filter(
     function ( $meta, $id ) {
 	if ( ! wp_attachment_is_image( $id ) ) { return $meta;
     }
-	if ( get_post_meta( $id, '_wp_attachment_image_alt', true ) !== '' ) { return $meta;
+	if ( '' !== get_post_meta( $id, '_wp_attachment_image_alt', true ) ) { return $meta;
     }
 	$file = get_attached_file( $id );
 	if ( ! $file || ! file_exists( $file ) ) { return $meta;
     }
 	$alt = lmt_extract_alt_from_file( $file );
-	if ( $alt !== '' ) { update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
+	if ( '' !== $alt ) { update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
     }
 	return $meta;
     },
@@ -298,7 +298,7 @@ function lmt_extract_alt_from_file( string $file ): string {
 			foreach ( array( '2#120', '2#105' ) as $tag ) {
 				if ( ! empty( $iptc[ $tag ][0] ) ) {
 					$val = trim( $iptc[ $tag ][0] );
-					if ( $val !== '' ) { return $val;
+					if ( '' !== $val ) { return $val;
                     }
 				}
 			}
@@ -308,13 +308,13 @@ function lmt_extract_alt_from_file( string $file ): string {
 		$exif = @exif_read_data( $file, 'IFD0', false );
 		if ( ! empty( $exif['ImageDescription'] ) ) {
 			$val = trim( $exif['ImageDescription'] );
-			if ( $val !== '' && ! preg_match( '/^[\x00-\x1f]+$/', $val ) ) { return $val;
+			if ( '' !== $val && ! preg_match( '/^[\x00-\x1f]+$/', $val ) ) { return $val;
             }
 		}
 		if ( ! empty( $exif['UserComment'] ) ) {
 			$val = trim( preg_replace( '/^(ASCII|UNICODE)\x00*/i', '', $exif['UserComment'] ) );
 			$val = trim( $val, "\x00" );
-			if ( $val !== '' && strlen( $val ) < 500 ) { return $val;
+			if ( '' !== $val && strlen( $val ) < 500 ) { return $val;
             }
 		}
 	}
@@ -322,7 +322,7 @@ function lmt_extract_alt_from_file( string $file ): string {
 	if ( $raw ) {
 		if ( preg_match( '/<dc:description[^>]*>.*?<rdf:Alt[^>]*>.*?<rdf:li[^>]*>([^<]{1,500})<\/rdf:li>/si', $raw, $m ) ) {
 			$val = trim( html_entity_decode( $m[1], ENT_XML1 | ENT_QUOTES, 'UTF-8' ) );
-			if ( $val !== '' ) { return $val;
+			if ( '' !== $val ) { return $val;
             }
 		}
 		if ( preg_match( '/dc:description="([^"]{1,500})"/i', $raw, $m ) ) { return trim( $m[1] );
@@ -381,7 +381,7 @@ add_action(
 
 	$page         = max( 1, intval( $_POST['page'] ?? 1 ) );
 	$per_page_raw = sanitize_text_field( wp_unslash( $_POST['per_page'] ?? '30' ) );
-	$per_page     = ( $per_page_raw === 'all' ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
+	$per_page     = ( 'all' === $per_page_raw ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
 	$filter       = sanitize_text_field( wp_unslash( $_POST['filter'] ?? 'all' ) );
 	$search       = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
 	$sort         = sanitize_text_field( wp_unslash( $_POST['sort'] ?? 'date_desc' ) );
@@ -414,11 +414,11 @@ add_action(
 		'orderby'        => $orderby,
 		'order'          => $order,
 	);
-	if ( $sort_meta !== '' ) {
+	if ( '' !== $sort_meta ) {
 		$args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
 	}
 
-	if ( $filter === 'missing' ) {
+	if ( 'missing' === $filter ) {
 		// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- filtering attachments by missing/empty alt text; admin-only Alt Manager screen.
 		$args['meta_query'] = array(
 'relation' => 'OR',
@@ -432,7 +432,7 @@ add_action(
 'compare' => 'NOT EXISTS'
 ),
 		);
-	} elseif ( $filter === 'has' ) {
+	} elseif ( 'has' === $filter ) {
 		// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- filtering attachments that have non-empty alt text; admin-only Alt Manager screen.
 		$args['meta_query'] = array(
 			array(
@@ -443,7 +443,7 @@ add_action(
 		);
 	}
 
-	if ( $search !== '' ) {
+	if ( '' !== $search ) {
 		$args['s'] = $search;
 	}
 
@@ -453,7 +453,7 @@ add_action(
 
 	$items = array();
 	foreach ( $ids as $id ) {
-		$thumb   = wp_get_attachment_image_url( $id, 'medium_large' ) ?: '';
+		$thumb   = wp_get_attachment_image_url( $id, 'medium_large' ) ? wp_get_attachment_image_url( $id, 'medium_large' ) : '';
 		$alt     = get_post_meta( $id, '_wp_attachment_image_alt', true );
 		$file    = get_attached_file( $id );
 		$meta    = wp_get_attachment_metadata( $id );
@@ -463,7 +463,7 @@ add_action(
 			'thumb'    => $thumb,
 			'filename' => $file ? basename( $file ) : '',
 			'alt'      => $alt,
-			'has_alt'  => ( $alt !== '' && $alt !== false ),
+			'has_alt'  => ( '' !== $alt && false !== $alt ),
 			'is_auto'  => lmt_is_auto_title( $id ),
 			'used'     => lmt_attachment_usage_count( $id ),
 			'title'    => $post ? (string) $post->post_title : '',
@@ -520,12 +520,12 @@ add_action(
     }
 
 	$id        = intval( $_POST['id'] ?? 0 );
-	$overwrite = ( sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) ) === '1' );
+	$overwrite = ( '1' === sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) ) );
 	if ( ! $id ) { wp_send_json_error( 'Invalid ID' );
     }
 
 	$existing = get_post_meta( $id, '_wp_attachment_image_alt', true );
-	if ( ! $overwrite && $existing !== '' && $existing !== false ) {
+	if ( ! $overwrite && '' !== $existing && false !== $existing ) {
 		wp_send_json_success( array(
 'id' => $id,
 'alt' => $existing,
@@ -535,7 +535,7 @@ add_action(
 
 	$post = get_post( $id );
 	$alt  = $post ? sanitize_text_field( $post->post_title ) : '';
-	if ( $alt !== '' ) {
+	if ( '' !== $alt ) {
 		update_post_meta( $id, '_wp_attachment_image_alt', $alt );
 		wp_send_json_success( array(
 'id' => $id,
@@ -616,7 +616,7 @@ add_action(
 	if ( ! current_user_can( 'upload_files' ) ) { wp_die( 'Forbidden', 403 );
     }
 
-	$overwrite = ( sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) ) === '1' );
+	$overwrite = ( '1' === sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) ) );
 	$args      = array(
 		'post_type'      => 'attachment',
 		'post_mime_type' => 'image',
@@ -663,7 +663,7 @@ function lmt_is_auto_title( $post_id ) {
     }
 
 	$title = (string) $post->post_title;
-	if ( $title === '' ) { return true;
+	if ( '' === $title ) { return true;
     }
 
 	$file = get_attached_file( $post_id );
@@ -671,12 +671,12 @@ function lmt_is_auto_title( $post_id ) {
     }
 
 	$basename = pathinfo( $file, PATHINFO_FILENAME );
-	if ( $basename === '' ) { return false;
+	if ( '' === $basename ) { return false;
     }
 
 	if ( $title === $basename ) {                  return true;
     }
-	if ( $title === sanitize_title( $basename ) ) { return true;
+	if ( sanitize_title( $basename ) === $title ) { return true;
     }
 
 	return false;
@@ -700,7 +700,7 @@ function lmt_attachment_usage_count( $id ) {
 	$base = $file ? basename( $file ) : '';
 
 	$like_class = '%' . $wpdb->esc_like( 'wp-image-' . $id ) . '%';
-	$like_file  = $base !== '' ? '%' . $wpdb->esc_like( $base ) . '%' : '%__lmt_no_match__%';
+	$like_file  = '' !== $base ? '%' . $wpdb->esc_like( $base ) . '%' : '%__lmt_no_match__%';
 
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin-only usage count; caching noted for production hardening.
 	$count = $wpdb->get_var(
@@ -745,7 +745,7 @@ add_action(
 	$file       = get_attached_file( $id );
 	$base       = $file ? basename( $file ) : '';
 	$like_class = '%' . $wpdb->esc_like( 'wp-image-' . $id ) . '%';
-	$like_file  = $base !== '' ? '%' . $wpdb->esc_like( $base ) . '%' : '%__lmt_no_match__%';
+	$like_file  = '' !== $base ? '%' . $wpdb->esc_like( $base ) . '%' : '%__lmt_no_match__%';
 
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin-only usage list; caching noted for production hardening.
 	$rows = $wpdb->get_results(
@@ -775,11 +775,11 @@ add_action(
 		$type_obj = get_post_type_object( $r->post_type );
 		$items[]  = array(
 			'id'     => (int) $r->ID,
-			'title'  => $r->post_title !== '' ? $r->post_title : '(no title)',
+			'title'  => '' !== $r->post_title ? $r->post_title : '(no title)',
 			'type'   => $type_obj ? $type_obj->labels->singular_name : $r->post_type,
 			'status' => $r->post_status,
-			'view'   => get_permalink( $r->ID ) ?: '',
-			'edit'   => get_edit_post_link( $r->ID, 'raw' ) ?: '',
+			'view'   => get_permalink( $r->ID ) ? get_permalink( $r->ID ) : '',
+			'edit'   => get_edit_post_link( $r->ID, 'raw' ) ? get_edit_post_link( $r->ID, 'raw' ) : '',
 		);
 	}
 
@@ -800,7 +800,7 @@ add_action(
 
 	$page         = max( 1, intval( $_POST['page'] ?? 1 ) );
 	$per_page_raw = sanitize_text_field( wp_unslash( $_POST['per_page'] ?? '30' ) );
-	$per_page     = ( $per_page_raw === 'all' ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
+	$per_page     = ( 'all' === $per_page_raw ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
 	$filter       = sanitize_text_field( wp_unslash( $_POST['filter'] ?? 'all' ) );
 	$search       = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
 	$sort         = sanitize_text_field( wp_unslash( $_POST['sort'] ?? 'date_desc' ) );
@@ -826,7 +826,7 @@ add_action(
 	// We can't filter "auto vs custom" in SQL cleanly (post_title vs filename
 	// requires per-row comparison), so we over-fetch and filter in PHP when
 	// filter=auto or filter=custom. For 'all' we paginate normally.
-	if ( $filter === 'auto' || $filter === 'custom' ) {
+	if ( 'auto' === $filter || 'custom' === $filter ) {
 		$all_args = array(
 			'post_type'      => 'attachment',
 			'post_mime_type' => $mime,
@@ -836,15 +836,15 @@ add_action(
 			'orderby'        => $orderby,
 			'order'          => $order,
 		);
-		if ( $sort_meta !== '' ) { $all_args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
-        }		if ( $search !== '' ) { $all_args['s'] = $search;
+		if ( '' !== $sort_meta ) { $all_args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
+        }		if ( '' !== $search ) { $all_args['s'] = $search;
         }
 		$all_ids = ( new WP_Query( $all_args ) )->posts;
 
 		$matched = array();
 		foreach ( $all_ids as $aid ) {
 			$is_auto = lmt_is_auto_title( $aid );
-			if ( ( $filter === 'auto' && $is_auto ) || ( $filter === 'custom' && ! $is_auto ) ) {
+			if ( ( 'auto' === $filter && $is_auto ) || ( 'custom' === $filter && ! $is_auto ) ) {
 				$matched[] = $aid;
 			}
 		}
@@ -867,8 +867,8 @@ add_action(
 			'orderby'        => $orderby,
 			'order'          => $order,
 		);
-		if ( $sort_meta !== '' ) { $args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
-        }		if ( $search !== '' ) { $args['s'] = $search;
+		if ( '' !== $sort_meta ) { $args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
+        }		if ( '' !== $search ) { $args['s'] = $search;
         }
 		$query = new WP_Query( $args );
 		$ids   = $query->posts;
@@ -877,7 +877,7 @@ add_action(
 
 	$items = array();
 	foreach ( $ids as $id ) {
-		$thumb   = wp_get_attachment_image_url( $id, 'medium_large' ) ?: '';
+		$thumb   = wp_get_attachment_image_url( $id, 'medium_large' ) ? wp_get_attachment_image_url( $id, 'medium_large' ) : '';
 		$post    = get_post( $id );
 		$title   = $post ? (string) $post->post_title : '';
 		$file    = get_attached_file( $id );
@@ -1024,7 +1024,7 @@ add_action(
 		wp_send_json_error( 'Image too large (>10 MB even after thumbnail fallback).' );
 	}
 
-	$mime          = mime_content_type( $file ) ?: get_post_mime_type( $id );
+	$mime          = mime_content_type( $file ) ? mime_content_type( $file ) : get_post_mime_type( $id );
 	$allowed_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
 	if ( ! in_array( $mime, $allowed_mimes, true ) ) {
 		wp_send_json_error( 'Unsupported image type: ' . $mime );
@@ -1038,7 +1038,7 @@ add_action(
 	$result = lmt_n8n_call( $endpoint, $token, $data_uri, $mime, $prompt );
 	if ( $result['ok'] ) {
 		$title = $result['alt']; // helper returns the text under the 'alt' key
-		$save  = ( sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) ) === '1' );
+		$save  = ( '1' === sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) ) );
 		if ( $save ) {
 			$upd = wp_update_post(
                 array(
@@ -1079,7 +1079,7 @@ add_action(
 
 	$page         = max( 1, intval( $_POST['page'] ?? 1 ) );
 	$per_page_raw = sanitize_text_field( wp_unslash( $_POST['per_page'] ?? '30' ) );
-	$per_page     = ( $per_page_raw === 'all' ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
+	$per_page     = ( 'all' === $per_page_raw ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
 	$search       = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
 	$filter       = sanitize_text_field( wp_unslash( $_POST['filter'] ?? 'all' ) );
 	$sort         = sanitize_text_field( wp_unslash( $_POST['sort'] ?? 'date_desc' ) );
@@ -1122,7 +1122,7 @@ add_action(
 		// 'date_desc' is the default already set above.
 	}
 
-	if ( $search !== '' ) { $args['s'] = $search;
+	if ( '' !== $search ) { $args['s'] = $search;
     }
 
 	$query      = new WP_Query( $args );
@@ -1135,14 +1135,14 @@ add_action(
 		$meta       = wp_get_attachment_metadata( $id );
 		$file       = get_attached_file( $id );
 		$filesize   = $file && file_exists( $file ) ? filesize( $file ) : 0;
-		$thumb      = wp_get_attachment_image_url( $id, 'medium_large' ) ?: '';
+		$thumb      = wp_get_attachment_image_url( $id, 'medium_large' ) ? wp_get_attachment_image_url( $id, 'medium_large' ) : '';
 		$mime       = get_post_mime_type( $id );
 		$w          = $meta['width'] ?? 0;
 		$h          = $meta['height'] ?? 0;
 		$has_backup = $file && file_exists( $file . '.lmt-backup' );
 
 		// Large filter: skip images whose longest edge is already ≤ 1200px
-		if ( $filter === 'large' && max( $w, $h ) <= 1200 ) {
+		if ( 'large' === $filter && max( $w, $h ) <= 1200 ) {
 			$skipped++;
 			continue;
 		}
@@ -1207,19 +1207,19 @@ add_action(
 		wp_send_json_error( 'File too large (> 25 MB). Resize manually first.' );
 	}
 
-	$mime = get_post_mime_type( $id ) ?: mime_content_type( $file );
+	$mime = get_post_mime_type( $id ) ? get_post_mime_type( $id ) : mime_content_type( $file );
 	$raw  = file_get_contents( $file );
-	if ( $raw === false ) { wp_send_json_error( 'Could not read file' );
+	if ( false === $raw ) { wp_send_json_error( 'Could not read file' );
     }
 
-	$b64     = base64_encode( $raw );
-	$dataUri = 'data:' . $mime . ';base64,' . $b64;
+	$b64      = base64_encode( $raw );
+	$data_uri = 'data:' . $mime . ';base64,' . $b64;
 
 	wp_send_json_success(
         array(
 		'id'      => $id,
 		'mime'    => $mime,
-		'data'    => $dataUri,
+		'data'    => $data_uri,
 		'size'    => $size,
         ) 
     );
@@ -1243,7 +1243,7 @@ add_action(
 	// would corrupt the base64 payload, so we only unslash here.
 	// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 	$data   = isset( $_POST['data'] ) ? wp_unslash( $_POST['data'] ) : '';   // base64 data URI
-	$backup = ( sanitize_text_field( wp_unslash( $_POST['backup'] ?? '1' ) ) === '1' );
+	$backup = ( '1' === sanitize_text_field( wp_unslash( $_POST['backup'] ?? '1' ) ) );
 
 	if ( ! $id || ! $data ) { wp_send_json_error( 'Missing data' );
     }
@@ -1276,7 +1276,7 @@ add_action(
 	// Write the new file over the original path
 	// (keep original extension — same URL)
 	$bytes = file_put_contents( $file, $raw );
-	if ( $bytes === false ) { wp_send_json_error( 'Write failed — check file permissions' );
+	if ( false === $bytes ) { wp_send_json_error( 'Write failed — check file permissions' );
     }
 
 	// Regenerate WordPress thumbnail sizes
@@ -1340,7 +1340,7 @@ add_action(
 	$filename = wp_unique_filename( $dir, $basename . '.webp' );
 	$dest     = trailingslashit( $dir ) . $filename;
 
-	if ( file_put_contents( $dest, $raw ) === false ) {
+	if ( false === file_put_contents( $dest, $raw ) ) {
 		wp_send_json_error( 'Write failed — check file permissions' );
 	}
 
@@ -1379,7 +1379,7 @@ add_action(
 		'source'   => $id,
 		'filename' => basename( $dest ),
 		'url'      => $url,
-		'edit'     => get_edit_post_link( $attach_id, 'raw' ) ?: '',
+		'edit'     => get_edit_post_link( $attach_id, 'raw' ) ? get_edit_post_link( $attach_id, 'raw' ) : '',
 		'width'    => $metadata['width'] ?? 0,
 		'height'   => $metadata['height'] ?? 0,
 		'filesize' => filesize( $dest ),
@@ -1442,7 +1442,7 @@ function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string
 	);
 
 	$headers = array( 'Content-Type' => 'application/json' );
-	if ( $token !== '' ) {
+	if ( '' !== $token ) {
 		$headers['Authorization'] = 'Bearer ' . $token;
 	}
 
@@ -1466,7 +1466,7 @@ function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string
 	$raw_body = wp_remote_retrieve_body( $response );
 	$body     = json_decode( $raw_body, true );
 
-	if ( $code !== 200 ) {
+	if ( 200 !== $code ) {
 		$err = ( is_array( $body ) && isset( $body['error'] ) )
 			? ( is_string( $body['error'] ) ? $body['error'] : wp_json_encode( $body['error'] ) )
 			: ( 'HTTP ' . $code . ': ' . substr( $raw_body, 0, 160 ) );
@@ -1491,7 +1491,7 @@ function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string
 	$text = trim( $text, "\"'" );
 	$text = trim( $text );
 
-	if ( $text === '' ) {
+	if ( '' === $text ) {
 		$debug = substr( $raw_body, 0, 200 );
 		return array(
 'ok' => false,
@@ -1587,7 +1587,7 @@ add_action(
 		wp_send_json_error( 'Image too large (>10 MB even after thumbnail fallback).' );
 	}
 
-	$mime          = mime_content_type( $file ) ?: get_post_mime_type( $id );
+	$mime          = mime_content_type( $file ) ? mime_content_type( $file ) : get_post_mime_type( $id );
 	$allowed_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
 	if ( ! in_array( $mime, $allowed_mimes, true ) ) {
 		wp_send_json_error( 'Unsupported image type: ' . $mime );
@@ -1601,7 +1601,7 @@ add_action(
 	$result = lmt_n8n_call( $endpoint, $token, $data_uri, $mime, $prompt );
 	if ( $result['ok'] ) {
 		$alt  = $result['alt'];
-		$save = ( sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) ) === '1' );
+		$save = ( '1' === sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) ) );
 		if ( $save ) {
 			update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
 		}
