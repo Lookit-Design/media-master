@@ -6,7 +6,7 @@
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
- * Requires at least: 5.8
+ * Requires at least: 5.9
  * Requires PHP: 7.4
  * Text Domain:  lookit-media-master
  */
@@ -49,42 +49,71 @@ add_action(
 // ═══════════════════════════════════════════════════════════════
 
 add_action(
-    'admin_init',
-    function () {
-	register_setting(
-        'lmt_settings',
-        'lmt_n8n_endpoint',
-        array(
-		'sanitize_callback' => 'esc_url_raw',
-		'default'           => '',
-        )
-    );
-	register_setting(
-        'lmt_settings',
-        'lmt_n8n_token',
-        array(
-		'sanitize_callback' => 'sanitize_text_field',
-		'default'           => '',
-        )
-    );
-	register_setting(
-        'lmt_settings',
-        'lmt_ai_prompt',
-        array(
-		'sanitize_callback' => 'sanitize_textarea_field',
-		'default'           => 'Write a concise, descriptive alt text for this image. Be specific about what is shown. Keep it under 125 characters. Do not start with "Image of" or "Photo of". Return only the alt text, nothing else.',
-        )
-    );
-	register_setting(
-        'lmt_settings',
-        'lmt_ai_title_prompt',
-        array(
-		'sanitize_callback' => 'sanitize_textarea_field',
-		'default'           => 'Write a short, descriptive title for this image. Use title case. Be specific about the subject. Keep it under 60 characters — suitable as a media library title or page heading. Do not wrap in quotes, do not end with a period, and do not start with phrases like "Image of" or "Photo of". Return only the title, nothing else.',
-        )
-    );
-    } 
+	'admin_init',
+	function () {
+		register_setting(
+			'lmt_settings',
+			'lmt_n8n_endpoint',
+			array(
+				'sanitize_callback' => 'esc_url_raw',
+				'default'           => '',
+			)
+		);
+		register_setting(
+			'lmt_settings',
+			'lmt_n8n_token',
+			array(
+				'sanitize_callback' => 'lmt_sanitize_n8n_token',
+				'default'           => '',
+				'autoload'          => false,
+			)
+		);
+		register_setting(
+			'lmt_settings',
+			'lmt_ai_prompt',
+			array(
+				'sanitize_callback' => 'sanitize_textarea_field',
+				'default'           => 'Write a concise, descriptive alt text for this image. Be specific about what is shown. Keep it under 125 characters. Do not start with "Image of" or "Photo of". Return only the alt text, nothing else.',
+			)
+		);
+		register_setting(
+			'lmt_settings',
+			'lmt_ai_title_prompt',
+			array(
+				'sanitize_callback' => 'sanitize_textarea_field',
+				'default'           => 'Write a short, descriptive title for this image. Use title case. Be specific about the subject. Keep it under 60 characters — suitable as a media library title or page heading. Do not wrap in quotes, do not end with a period, and do not start with phrases like "Image of" or "Photo of". Return only the title, nothing else.',
+			)
+		);
+		lmt_maybe_disable_autoload();
+	}
 );
+
+function lmt_sanitize_n8n_token( $submitted ) {
+	$submitted = sanitize_text_field( $submitted );
+	if ( '' === $submitted ) {
+		return (string) get_option( 'lmt_n8n_token', '' );
+	}
+	return $submitted;
+}
+
+function lmt_disable_option_autoload( $option_name ) {
+	$alloptions = wp_load_alloptions();
+	if ( ! isset( $alloptions[ $option_name ] ) ) {
+		return;
+	}
+	$value = get_option( $option_name );
+	delete_option( $option_name );
+	add_option( $option_name, $value, '', false );
+}
+
+function lmt_maybe_disable_autoload() {
+	lmt_disable_option_autoload( 'lmt_n8n_token' );
+}
+
+function lmt_update_secret_option( $option_name, $value ) {
+	update_option( $option_name, $value );
+	lmt_disable_option_autoload( $option_name );
+}
 
 function lmt_render_settings_page() {
 	if ( ! current_user_can( 'manage_options' ) ) { return;
@@ -92,7 +121,8 @@ function lmt_render_settings_page() {
 	if ( isset( $_POST['lmt_save_settings'] ) ) {
 		check_admin_referer( 'lmt_settings_save' );
 		update_option( 'lmt_n8n_endpoint', esc_url_raw( wp_unslash( $_POST['lmt_n8n_endpoint'] ?? '' ) ) );
-		update_option( 'lmt_n8n_token', sanitize_text_field( wp_unslash( $_POST['lmt_n8n_token'] ?? '' ) ) );
+		$submitted_token = isset( $_POST['lmt_n8n_token'] ) ? sanitize_text_field( wp_unslash( $_POST['lmt_n8n_token'] ) ) : '';
+		lmt_update_secret_option( 'lmt_n8n_token', lmt_sanitize_n8n_token( $submitted_token ) );
 		update_option( 'lmt_ai_prompt', sanitize_textarea_field( wp_unslash( $_POST['lmt_ai_prompt'] ?? '' ) ) );
 		update_option( 'lmt_ai_title_prompt', sanitize_textarea_field( wp_unslash( $_POST['lmt_ai_title_prompt'] ?? '' ) ) );
 		echo '<div class="notice notice-success"><p>Settings saved.</p></div>';
@@ -101,7 +131,7 @@ function lmt_render_settings_page() {
 	$token        = get_option( 'lmt_n8n_token', '' );
 	$prompt       = get_option( 'lmt_ai_prompt', 'Write a concise, descriptive alt text for this image. Be specific about what is shown. Keep it under 125 characters. Do not start with "Image of" or "Photo of". Return only the alt text, nothing else.' );
 	$title_prompt = get_option( 'lmt_ai_title_prompt', 'Write a short, descriptive title for this image. Use title case. Be specific about the subject. Keep it under 60 characters — suitable as a media library title or page heading. Do not wrap in quotes, do not end with a period, and do not start with phrases like "Image of" or "Photo of". Return only the title, nothing else.' );
-	$token_masked = $token ? str_repeat( '•', max( 0, strlen( $token ) - 4 ) ) . substr( $token, -4 ) : '';
+	$token_masked = $token ? '••••••••' . substr( $token, -4 ) : '';
 	?>
 	<div class="wrap">
 	  <h1 style="margin-bottom:20px;">Lookit Media Master — Settings</h1>
@@ -127,11 +157,11 @@ function lmt_render_settings_page() {
 			<th scope="row"><label for="lmt_n8n_token">Endpoint Token <span style="font-weight:400;">(optional)</span></label></th>
 			<td>
 			  <input type="password" id="lmt_n8n_token" name="lmt_n8n_token"
-					 value="<?php echo esc_attr( $token ); ?>"
+					 value=""
 					 class="regular-text" autocomplete="off"
-					 placeholder="shared secret for the endpoint" />
+					 placeholder="<?php echo $token ? esc_attr( 'Leave blank to keep the saved token' ) : esc_attr( 'shared secret for the endpoint' ); ?>" />
 			  <?php if ( $token_masked ) : ?>
-				<p class="description">Current token: <code><?php echo esc_html( $token_masked ); ?></code></p>
+				<p class="description">Currently set: <code><?php echo esc_html( $token_masked ); ?></code> &mdash; leave blank to keep it, or paste a new value to replace it.</p>
 			  <?php endif; ?>
 			  <p class="description">
 				Sent as a <code>Bearer</code> token to the endpoint if your n8n webhook requires one.
