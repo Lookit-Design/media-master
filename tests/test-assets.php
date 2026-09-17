@@ -32,4 +32,17 @@ class Test_Lookit_Media_Master_Assets extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Press Update to save.', $script );
 		$this->assertStringNotContainsString( "save: '1'", $script );
 	}
+
+	public function test_app_uses_box_resize_presets_and_deferred_usage_counts() {
+		$script = $this->asset_contents( 'app.js' );
+
+		$this->assertStringContainsString( 'scale = Math.min(t.w ? t.w / w : 1, t.h ? t.h / h : 1)', $script );
+		$this->assertStringContainsString( 'max_width: target.w, max_height: target.h', $script );
+		$this->assertStringContainsString( 'data-h="${s.h || \'\'}"', $script );
+		$this->assertStringContainsString( 'text: `↓ Save ~${formatBytes(saved)} at ${Math.round(w * scale)}×${Math.round(h * scale)}`', $script );
+		$this->assertStringContainsString( "action: 'lmt_usage_counts'", $script );
+		$this->assertStringContainsString( 'offset += 100', $script );
+		$this->assertStringContainsString( "document.getElementById('alt-select-all')", $script );
+		$this->assertStringContainsString( "document.getElementById('title-select-all')", $script );
+	}
 }

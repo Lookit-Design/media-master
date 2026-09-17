@@ -45,7 +45,7 @@ AI features only run when an endpoint is configured and you trigger a generate a
 ## Features
 
 * **Image Resizer & Compressor** — resize and compress images in the browser before they enter the Media Library.
-* **Media Library Resizer** — re-process images already in the library, with an optional one-time backup of each original.
+* **Media Library Resizer** — fit images inside width and height boxes without upscaling, with an optional one-time backup of each original.
 * **All Tasks** — start from a single work overview with links and outstanding metadata counts.
 * **Metadata Manager** — find missing alt text, captions, or descriptions, then edit or generate each field.
 * **Title Manager** — bulk-edit attachment titles, title from filenames, or generate titles from the image.
@@ -54,6 +54,7 @@ AI features only run when an endpoint is configured and you trigger a generate a
 * **Import** — upload supported media one file per request, with optional client-side image optimization.
 * **Export** — build filtered ZIP archives in batches and download them through authenticated handlers.
 * **Optional Media menu absorption** — place core and third-party Media submenus under Media Master, off by default.
+* **Large-library grids** — page queries, cache aggregate title statistics, load appropriately sized thumbnails, and defer usage counts until cards render.
 * **Usage indicators** — see how many posts embed each image, and jump to those posts from the card.
 
 ## Security and Privacy

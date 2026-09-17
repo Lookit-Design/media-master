@@ -4,7 +4,7 @@ Tags: media, images, alt text, compress, resize
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.27.1
+Stable tag: 3.39.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,80 @@ This plugin connects to the Lookit AI platform (a self-hosted n8n endpoint opera
 The plugin also bundles a local copy of the JSZip library (MIT licensed) for building ZIP downloads in the browser; no external request is made for it.
 
 == Changelog ==
+
+= 3.39.3 =
+* Changed: Internal rework of how the image grids fetch and display usage counts. No change to what you see.
+* Security: Usage batches are capped and permission-filtered, and resized image writes are validated against their requested box.
+
+= 3.39.2 =
+* Changed: Internal rework of how image usage counts are looked up. No change to what you see.
+
+= 3.39.1 =
+* Changed: Internal code quality pass following a Plugin Check run. No change to how anything behaves.
+
+= 3.39.0 =
+* Fixed: Large media libraries loaded slowly on the Alt text, Titles and Resize screens, even with 30 per page selected. Several counts were reading the whole library on every visit rather than just the page being shown.
+* Fixed: The Titles screen recalculated auto/custom counts across every image on each load. It now uses a single query with a short cache.
+* Fixed: Filtering Titles by Auto or Custom no longer scans the entire library before paging.
+* Changed: The "Used in" count now appears a moment after the grid, instead of holding the whole page back while it is worked out.
+* Changed: Grid thumbnails use a smaller source image, cutting the data each page pulls down.
+
+= 3.38.0 =
+* Changed: One accent colour across All tasks. The amber highlight on jobs with work waiting, and the red on the missing alt text counter, are both gone; every card and counter now uses the same blue. The numbers carry the urgency.
+
+= 3.37.0 =
+* Changed: The job cards on All tasks are laid out three to a row, so the descriptions read at a comfortable width instead of stretching across the screen.
+* Changed: The counters moved above the job cards, where they act as a summary of the screen.
+
+= 3.36.0 =
+* Added: "Add missing captions" and "Add missing descriptions" jobs on the All tasks screen. Each one opens Alt text & captions with that filter already applied.
+* Added: The counters on All tasks are now buttons. Clicking one opens the tool showing only that slice, the same way the counters on Alt text & captions already work.
+* Added: Missing caption and Missing description counters on All tasks.
+* Added: Tasks screens can be linked to directly with a filter, e.g. ?tab=alt&filter=missing_caption.
+* Changed: The standalone "Have alt text" counter is gone. That number now sits under "Missing alt text", matching how the caption and description counts read.
+
+= 3.35.0 =
+* Changed: Removed the "Titles seed alt text" line under the Titles counters. The page description above it already covers the same ground.
+
+= 3.34.0 =
+* Changed: The AI status banner on Alt text & captions and on Titles is hidden once the endpoint is connected, since it only repeated what the working Generate buttons already show. It still appears on those screens when no endpoint is set, because that is when it tells you something you need. The banner on Settings is unaffected.
+
+= 3.33.0 =
+* Fixed: On Resize & compress the Size panel sat flush against the search row below it, while every other pair of blocks on the screen had a gap. The upload and library sub-views now space their contents the same way the rest of the plugin does.
+
+= 3.32.0 =
+* Changed: Size presets now follow the house sizing table. Seven tiers, each retina size sitting directly above its display size: Hero (2560x1920 / 1920x1440), Full width (2400x1800 / 1200x900), Standard (1600x1200 / 800x600) and Medium (600x450).
+* Fixed: Tier names were a step out. 2400 was labelled Hero when it is the retina of full content width, and 1200 was labelled Standard when it is full width at display size. The pixel sizes are unchanged; the names now match what they are for.
+* Added: 1920 and 1600 presets, which the old list was missing.
+* Changed: The Longest edge list on the upload screen and the Handling list on the import screen use the same tier names, so there is one vocabulary across the plugin.
+
+= 3.31.0 =
+* Changed: Resize & compress has one behaviour instead of three. Every image is fitted inside a width x height box, so the Width / Height / Both switch has been removed along with the single-number Custom chip. A custom box is created in the save row, which takes a name, a width and a height.
+* Changed: One typeface across the whole plugin. The monospace face drew slashed zeros in filenames, dimensions and counts; everything now uses DM Sans with tabular figures, so numbers still line up in columns.
+
+= 3.30.2 =
+* Changed: Zeros in filenames, dimensions and other monospaced text are plain ovals instead of slashed. The monospace face is now Roboto Mono in place of DM Mono; nothing else about the typography changes.
+
+= 3.30.1 =
+* Fixed: Image page - the Title label no longer sits hard against the top of the Metadata card. The spacing rule added in 3.27.1 was never taking effect because it targeted the wrong element.
+* Fixed: Image page - when the metadata fields are read-only there is now proper space below the last field.
+
+= 3.30.0 =
+* Changed: Both mode presets are proper boxes at 4:3 - 2560x1920, 2400x1800, 1200x900, 800x600, 600x450 - instead of every width being paired with one shared height, which produced combinations like 800x1200.
+* Changed: Both mode no longer shows the Custom chip or a separate Max height field. A custom box is made in the save row, which takes a name, a width and a height.
+* Changed: A saved size shows as a box while Both is selected, using its own height if it has one.
+
+= 3.29.0 =
+* Changed: In Both mode the width presets now read as boxes, for example "1200x900", so the width and the height are both visible before running. Changing the max height relabels every preset.
+* Added: Saving a size while Both is selected stores a width and a height together, and the saved size appears as "1200x900". Picking it fills in both numbers.
+* Changed: When an image needs no resizing the card says which dimension was measured, for example "No change - 960px tall already fits 1200px tall", so height mode no longer looks like it is ignoring the setting.
+* Changed: Select all moved out of the action bar and into the view controls, next to the image size slider, on all three tabs. On Alt text and Titles it is now labelled "Select all" rather than "Select all on page".
+* Fixed: Clicking a thumbnail on Alt text & captions or Titles opens that image's page, the same as Resize & compress. Previously only the Edit details link worked.
+
+= 3.28.0 =
+* Added: Resize & compress can now resize by width, by height, or by both. "Resize by" at the top of the setup block switches between them; the width presets stay the same and only the meaning of the number changes. "Both" adds a max height and fits each image inside the box, keeping its proportions.
+* Changed: Portrait images are handled correctly. Previously the number always applied to the longest edge, so a tall image had its height capped when you asked for a width. Width mode now caps the width, height mode caps the height.
+* Changed: The per-image saving estimate shows the finished dimensions, for example "Save ~5.7 KB at 1200x900", and images already inside the target are skipped as before.
 
 = 3.27.1 =
 * Changed: Dark Mode and Square Corners moved off the top of every screen into Settings → Appearance, where they sit with Text size as Colour and Corners. Both are still saved per browser and still apply everywhere, including the image pages.
