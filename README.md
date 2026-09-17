@@ -6,7 +6,7 @@
 [![Plugin Check](https://github.com/Lookit-Design/media-master/actions/workflows/plugin-check.yml/badge.svg)](../../actions/workflows/plugin-check.yml)
 [![Tests](https://github.com/Lookit-Design/media-master/actions/workflows/test.yml/badge.svg)](../../actions/workflows/test.yml)
 
-A unified WordPress media toolkit for resizing, importing, protected ZIP export, and managing image alt text and titles.
+A unified WordPress media toolkit for resizing, importing, protected ZIP export, and managing attachment metadata.
 
 Supports `WordPress >= 5.9` on `PHP >= 7.4`.
 
@@ -37,7 +37,7 @@ This plugin is installed from GitHub, not from WordPress.org.
 ### Configuration
 
 1. Open **Media Master → Settings**.
-2. Set the Lookit AI endpoint URL if you want AI alt text and titles.
+2. Set the Lookit AI endpoint URL if you want AI-generated alt text, titles, captions, and descriptions.
 3. Optionally paste the endpoint token. The field stays blank after save; leave it empty to keep the stored value.
 
 AI features only run when an endpoint is configured and you trigger a generate action.
@@ -46,10 +46,14 @@ AI features only run when an endpoint is configured and you trigger a generate a
 
 * **Image Resizer & Compressor** — resize and compress images in the browser before they enter the Media Library.
 * **Media Library Resizer** — re-process images already in the library, with an optional one-time backup of each original.
-* **Alt Text Manager** — find images missing alt text, edit it by hand, or generate it from the image via the Lookit AI platform.
+* **All Tasks** — start from a single work overview with links and outstanding metadata counts.
+* **Metadata Manager** — find missing alt text, captions, or descriptions, then edit or generate each field.
 * **Title Manager** — bulk-edit attachment titles, title from filenames, or generate titles from the image.
+* **Attachment pages** — preview individual files, edit all metadata fields, and navigate between accessible images.
+* **Attachment metabox** — generate metadata into the native WordPress fields without saving until Update is pressed.
 * **Import** — upload supported media one file per request, with optional client-side image optimization.
 * **Export** — build filtered ZIP archives in batches and download them through authenticated handlers.
+* **Optional Media menu absorption** — place core and third-party Media submenus under Media Master, off by default.
 * **Usage indicators** — see how many posts embed each image, and jump to those posts from the card.
 
 ## Security and Privacy

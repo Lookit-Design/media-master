@@ -7,7 +7,7 @@ class Test_Lookit_Media_Master_Plugin extends WP_UnitTestCase {
 
 	public function test_plugin_defines_version() {
 		$this->assertTrue( defined( 'LMT_VERSION' ) );
-		$this->assertSame( '3.19.3', LMT_VERSION );
+		$this->assertSame( '3.27.1', LMT_VERSION );
 	}
 
 	public function test_import_capabilities_report_wordpress_upload_limit() {

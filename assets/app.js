@@ -43,6 +43,24 @@
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   toggleBtn?.addEventListener('click', toggleTheme);
 
+  /* v3.27.1 — Colour mode now lives in Settings → Appearance as a pair of
+     option tiles, alongside Text size. The old topbar toggle is gone but its
+     handler stays above, so nothing breaks if it is ever put back. */
+  function syncThemeOpts(theme) {
+    document.querySelectorAll('#lmt-theme-opts .lmt-fs-opt').forEach(b => {
+      b.classList.toggle('active', b.dataset.theme === theme);
+    });
+  }
+  document.getElementById('lmt-theme-opts')?.addEventListener('click', function (e) {
+    const btn = e.target.closest('.lmt-fs-opt');
+    if (!btn) return;
+    const theme = btn.dataset.theme === 'light' ? 'light' : 'dark';
+    localStorage.setItem(THEME_KEY, theme);
+    applyTheme(theme);
+    syncThemeOpts(theme);
+  });
+  syncThemeOpts(localStorage.getItem(THEME_KEY) || 'dark');
+
   /* ══════════════════════════════════════════════════════
      CORNER STYLE  (rounded / square)
      Persists via localStorage. Applies .lmt-square on the
@@ -65,6 +83,129 @@
     applyCorners(next);
   }
   applyCorners(localStorage.getItem(CORNERS_KEY) || 'rounded');
+
+  /* v3.27.1 — Corner style, same treatment as colour mode. */
+  function syncCornerOpts(mode) {
+    document.querySelectorAll('#lmt-corners-opts .lmt-fs-opt').forEach(b => {
+      b.classList.toggle('active', b.dataset.corners === mode);
+    });
+  }
+  document.getElementById('lmt-corners-opts')?.addEventListener('click', function (e) {
+    const btn = e.target.closest('.lmt-fs-opt');
+    if (!btn) return;
+    const mode = btn.dataset.corners === 'square' ? 'square' : 'rounded';
+    localStorage.setItem(CORNERS_KEY, mode);
+    applyCorners(mode);
+    syncCornerOpts(mode);
+  });
+  syncCornerOpts(localStorage.getItem(CORNERS_KEY) || 'rounded');
+
+  /* ══════════════════════════════════════════════════════
+     v3.23.0 — TEXT SIZE
+     Every font-size in style.css is calc(Npx * var(--lmt-fs,1)),
+     so one custom property scales the whole plugin. Stored per
+     browser next to the theme and corner preferences; nothing is
+     written to the database and no request is made.
+     ══════════════════════════════════════════════════════ */
+  const FS_KEY    = 'lmt_text_scale';
+  const FS_STEPS  = ['0.92', '1', '1.15', '1.3'];
+
+  function applyTextScale(scale) {
+    const val = FS_STEPS.indexOf(String(scale)) === -1 ? '1' : String(scale);
+    document.querySelectorAll('.lmt-wrap').forEach(el => {
+      el.style.setProperty('--lmt-fs', val);
+    });
+    document.querySelectorAll('#lmt-fs-opts .lmt-fs-opt').forEach(b => {
+      const on = b.dataset.scale === val;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    return val;
+  }
+
+  let savedScale = null;
+  try { savedScale = localStorage.getItem(FS_KEY); } catch (e) { /* private mode */ }
+  applyTextScale(savedScale || '1');
+
+  document.getElementById('lmt-fs-opts')?.addEventListener('click', function (e) {
+    const btn = e.target.closest('.lmt-fs-opt');
+    if (!btn) return;
+    const val = applyTextScale(btn.dataset.scale);
+    try { localStorage.setItem(FS_KEY, val); } catch (err) { /* private mode */ }
+  });
+
+  /* ══════════════════════════════════════════════════════
+     v3.23.0 — PAGE MEMORY
+     Each tool remembers the page it was left on, so reopening a
+     tool — or coming back from an image page — lands where you
+     were rather than at the top of the library. Per browser, and
+     switchable off in Settings › Appearance.
+     ══════════════════════════════════════════════════════ */
+  const PAGE_KEY   = 'lmt_page_';
+  const REMEMBER_K = 'lmt_remember_page';
+
+  window.LMTPages = {
+    enabled: function () {
+      try { return localStorage.getItem(REMEMBER_K) !== '0'; } catch (e) { return false; }
+    },
+    remember: function (tool, page) {
+      if (!this.enabled()) return;
+      try { localStorage.setItem(PAGE_KEY + tool, String(parseInt(page, 10) || 1)); } catch (e) { /* private mode */ }
+    },
+    recall: function (tool) {
+      if (!this.enabled()) return 1;
+      let v = null;
+      try { v = localStorage.getItem(PAGE_KEY + tool); } catch (e) { return 1; }
+      const n = parseInt(v, 10);
+      return n > 0 ? n : 1;
+    },
+    clear: function () {
+      ['mlr', 'alt', 'title'].forEach(t => {
+        try { localStorage.removeItem(PAGE_KEY + t); } catch (e) { /* private mode */ }
+      });
+    }
+  };
+
+  /* Settings toggle. Turning it off clears what's already stored, so the
+     next visit genuinely starts at page 1 rather than at a stale page. */
+  const rememberBox = document.getElementById('lmt-remember-page');
+  if (rememberBox) {
+    rememberBox.checked = window.LMTPages.enabled();
+    rememberBox.addEventListener('change', function () {
+      try { localStorage.setItem(REMEMBER_K, this.checked ? '1' : '0'); } catch (e) { /* private mode */ }
+      if (!this.checked) window.LMTPages.clear();
+    });
+  }
+
+  /* Read-only navigation hints set by the image page's Back link:
+     ?paged= which page to reopen, ?hl= which card to scroll to. */
+  window.LMTReturn = { paged: 0, hl: 0 };
+  try {
+    const q = new URLSearchParams(window.location.search);
+    window.LMTReturn.paged = parseInt(q.get('paged'), 10) || 0;
+    window.LMTReturn.hl    = parseInt(q.get('hl'), 10) || 0;
+  } catch (e) { /* older browser */ }
+
+  /* Scroll the card you came back from into view and flash it once, so a
+     page of near-identical thumbnails doesn't lose your place. */
+  window.lmtHighlightReturn = function (prefix) {
+    const id = window.LMTReturn.hl;
+    if (!id) return;
+    const card = document.getElementById(prefix + '-card-' + id);
+    if (!card) return;
+    window.LMTReturn.hl = 0;
+    card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    card.classList.add('lmt-card-returned');
+    setTimeout(() => card.classList.remove('lmt-card-returned'), 2400);
+  };
+
+  /* Build the "Edit details" link for a card: the plugin's own image page,
+     carrying enough context to come back to this exact spot. */
+  window.lmtDetailUrl = function (img, tool, page) {
+    if (!img || !img.detail_url) return (img && img.edit_url) || '#';
+    const sep = img.detail_url.indexOf('?') === -1 ? '?' : '&';
+    return img.detail_url + sep + 'from=' + encodeURIComponent(tool) + '&paged=' + (parseInt(page, 10) || 1);
+  };
   cornersBtn?.addEventListener('click', toggleCorners);
 
   /* ══════════════════════════════════════════════════════
@@ -226,10 +367,74 @@
      exists (renamed or removed in an update) just falls through to the
      default already marked active in the markup. */
   (function restoreTab() {
+    // v3.21.0 — an explicit ?tab= in the URL wins over the remembered tab.
+    // This is how the old settings URL lands on the Settings panel.
+    const fromUrl = document.getElementById('lmt-root')?.dataset.initialTab || null;
+    if (fromUrl && activateTab(fromUrl, false)) return;
+
     let saved = null;
     try { saved = localStorage.getItem(TAB_KEY); } catch (e) { /* private mode */ }
     if (saved) activateTab(saved, false);
   })();
+
+  // "⚙ Settings" buttons inside the AI banners jump to the panel rather
+  // than leaving the screen.
+  document.querySelectorAll('.lmt-goto-settings').forEach(function (b) {
+    b.addEventListener('click', function () { activateTab('settings', true); });
+  });
+  window.lmtGotoSettings = function () { activateTab('settings', true); };
+
+  /* v3.23.0 — which tool is on screen. Used to decide whether a ?paged=
+     in the URL belongs to this tab. */
+  function lmtActiveTabName() {
+    const active = document.querySelector('.lmt-tab.active');
+    return active ? active.dataset.tab : '';
+  }
+  window.lmtActiveTabName = lmtActiveTabName;
+
+  /* v3.23.0 — the All tasks cards are shortcuts to the tools, nothing more. */
+  document.querySelectorAll('[data-goto-tab]').forEach(function (card) {
+    card.addEventListener('click', function () { activateTab(card.dataset.gotoTab, true); });
+  });
+
+  /* Each card says how much work is waiting, and where you left off. The
+     numbers come from the stats endpoints the rail badges already call;
+     lmtHomeCounts() is invoked from those handlers once the data lands. */
+  window.lmtHomeCounts = function (part, d) {
+    const set = function (id, text) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = text;
+    };
+    const resume = function (tool) {
+      const p = window.LMTPages.recall(tool);
+      return p > 1 ? ' <span class="lmt-home-resume">back to page ' + p + '</span>' : '';
+    };
+
+    if (part === 'alt' && d) {
+      const missing = d.missing || 0;
+      set('lmt-home-stat-alt', (missing
+        ? missing + (missing === 1 ? ' image has no alt text' : ' images have none')
+        : 'Every image has alt text') + ' &rarr;' + resume('alt'));
+      set('lmt-home-stat-mlr', (d.total || 0) + ' images in your library &rarr;' + resume('mlr'));
+      set('lmt-home-n-total', d.total || 0);
+      set('lmt-home-n-alt', d.has_alt || 0);
+      set('lmt-home-n-missing', missing);
+      const wrap = document.getElementById('lmt-home-stats');
+      if (wrap) wrap.hidden = false;
+      const lede = document.getElementById('lmt-home-lede');
+      if (lede && d.total) {
+        lede.textContent = d.total + ' images in your library. Pick a job below — you will come back to whatever page you were on.';
+      }
+    }
+
+    if (part === 'title' && d) {
+      const auto = d.auto || 0;
+      set('lmt-home-stat-title', (auto
+        ? auto + (auto === 1 ? ' title is still a filename' : ' titles are still filenames')
+        : 'Every image has a real title') + ' &rarr;' + resume('title'));
+      set('lmt-home-n-titles', auto);
+    }
+  };
 
   /* ══════════════════════════════════════════════════════
      COMBINED TAB — UPLOAD ↔ LIBRARY SUB-VIEW TOGGLE
@@ -288,6 +493,86 @@
      as the --lmt-card-min CSS var on the grid wrap.
   ══════════════════════════════════════════════════════ */
 
+  /* ══════════════════════════════════════════════════════
+     SHARED — FILTER TILES  (v3.27.0)
+     The counts above each grid are the filter. A tile sets the tab's
+     filter <select>, marks itself active, and names the current slice in
+     a clearable pill so it is never ambiguous what is on screen.
+  ══════════════════════════════════════════════════════ */
+
+  const LMT_TILE_LABELS = {
+    alt: {
+      all: 'All images', missing: 'Missing alt text', has: 'Have alt text',
+      missing_caption: 'Missing caption', missing_desc: 'Missing description',
+      has_caption: 'Have caption', has_desc: 'Have description',
+      missing_any: 'Missing anything', complete: 'Complete (all three)'
+    },
+    title: { all: 'All images', auto: 'Still a filename', custom: 'Given a real title' }
+  };
+
+  function lmtSyncTiles(group, val) {
+    const wrap = document.querySelector(`[data-tilegroup="${group}"]`);
+    if (wrap) {
+      wrap.querySelectorAll('.lmt-tile').forEach(t => {
+        t.setAttribute('aria-pressed', String(t.dataset.filter === val));
+      });
+    }
+    const pill = document.getElementById(group + '-filter-pill');
+    const text = document.getElementById(group + '-filter-pill-text');
+    if (!pill || !text) return;
+    if (!val || val === 'all') { pill.hidden = true; return; }
+    const label = (LMT_TILE_LABELS[group] || {})[val] || val;
+    const tile  = wrap?.querySelector(`.lmt-tile[data-filter="${val}"] b`);
+    const count = tile ? tile.textContent.trim() : '';
+    text.textContent = count && count !== '\u2014' ? `${label} \u00b7 ${count} shown` : label;
+    pill.hidden = false;
+  }
+  window.lmtSyncTiles = lmtSyncTiles;
+
+  document.addEventListener('click', function(e) {
+    const tile = e.target.closest('[data-tilegroup] .lmt-tile, [data-tilefilter]');
+    if (tile) {
+      const group = tile.dataset.tilefilter || tile.closest('[data-tilegroup]')?.dataset.tilegroup;
+      const val   = tile.dataset.filter;
+      if (group === 'alt')   window.lmtAltFilter(val);
+      if (group === 'title') window.lmtTitleFilter(val);
+      return;
+    }
+    const clear = e.target.closest('[data-tileclear]');
+    if (clear) {
+      const group = clear.dataset.tileclear;
+      if (group === 'alt')   window.lmtAltFilter('all');
+      if (group === 'title') window.lmtTitleFilter('all');
+    }
+  });
+
+  /* v3.27.0 — Card size is one preference for the whole plugin, not one per
+     tab. Every slider and every grid follows the same value, so shrinking the
+     thumbnails on Resize keeps them shrunk on Alt text and Titles. Grid/list
+     view stays per tab, since the two tabs are used differently. */
+  const LMT_SIZE_KEY = 'lmt_size';
+
+  function lmtReadCardSize() {
+    // Falls back to the old per-tab keys once, so nobody's setting resets.
+    const v = localStorage.getItem(LMT_SIZE_KEY)
+           || localStorage.getItem('lmt_size_mlr')
+           || localStorage.getItem('lmt_size_alt')
+           || localStorage.getItem('lmt_size_title');
+    const n = parseInt(v, 10);
+    return (n >= 140 && n <= 360) ? n : 200;
+  }
+
+  function lmtApplyCardSize(val) {
+    document.querySelectorAll('.lmt-size-range').forEach(s => {
+      if (s.value !== String(val)) s.value = val;
+    });
+    document.querySelectorAll('.lmt-image-grid-wrap').forEach(w => {
+      w.style.setProperty('--lmt-card-min', val + 'px');
+    });
+    localStorage.setItem(LMT_SIZE_KEY, String(val));
+  }
+  window.lmtApplyCardSize = lmtApplyCardSize;
+
   function initViewControls(prefix, reload) {
     const wrap    = document.getElementById(prefix + '-grid-wrap');
     const gridBtn = document.getElementById(prefix + '-view-grid');
@@ -301,20 +586,13 @@
       listBtn?.classList.toggle('active', mode === 'list');
       localStorage.setItem('lmt_view_' + prefix, mode);
     }
-    function applySize() {
-      if (!wrap || !sizeSld) return;
-      wrap.style.setProperty('--lmt-card-min', sizeSld.value + 'px');
-      localStorage.setItem('lmt_size_' + prefix, sizeSld.value);
-    }
 
     setView(localStorage.getItem('lmt_view_' + prefix) || 'grid');
-    const savedSize = localStorage.getItem('lmt_size_' + prefix);
-    if (savedSize && sizeSld) sizeSld.value = savedSize;
-    applySize();
+    lmtApplyCardSize(lmtReadCardSize());
 
     gridBtn?.addEventListener('click', () => setView('grid'));
     listBtn?.addEventListener('click', () => setView('list'));
-    sizeSld?.addEventListener('input', applySize);
+    sizeSld?.addEventListener('input', () => lmtApplyCardSize(sizeSld.value));
     // Changing per-page reloads a fresh first batch — but only if a grid
     // has already been loaded (the library tab waits for "Load Images").
     perPage?.addEventListener('change', () => {
@@ -621,7 +899,9 @@
         <div class="lmt-img-card${img.has_backup ? ' lmt-card-done' : ''}" id="mlr-card-${img.id}">
           <div class="lmt-img-thumb-wrap">
             <input type="checkbox" class="lmt-img-select" id="mlr-chk-${img.id}" data-id="${img.id}" onchange="window.mlrToggleSelect(${img.id},this.checked)">
-            ${img.thumb ? `<img class="lmt-img-thumb" src="${escHtml(img.thumb)}" alt="" loading="lazy">` : '<div class="lmt-img-thumb" style="background:var(--s3)"></div>'}
+            <a class="lmt-thumb-link" href="${escHtml(window.lmtDetailUrl(img, 'mlr', mlrPage))}" title="Open ${escHtml(img.filename)}">
+              ${img.thumb ? `<img class="lmt-img-thumb" src="${escHtml(img.thumb)}" alt="" loading="lazy">` : '<div class="lmt-img-thumb" style="background:var(--s3)"></div>'}
+            </a>
           </div>
           <div class="lmt-img-body">
             <div class="lmt-img-filename" title="${escHtml(img.filename)}">${escHtml(img.filename)}</div>
@@ -629,6 +909,11 @@
             ${attentionChips(img)}
             <div class="lmt-resize-est${estClass}" id="mlr-est-${img.id}" data-bytes="${img.filesize || 0}" data-longest="${longest}">${est ? escHtml(est.text) : ''}</div>
             ${img.has_backup ? `<button class="lmt-restore-btn" onclick="window.mlrRestore(${img.id})">↩ Restore Original</button>` : ''}
+            <div class="lmt-card-actions">
+              <a class="lmt-edit-btn" href="${escHtml(window.lmtDetailUrl(img, 'mlr', mlrPage))}" title="Open this image in Media Master">
+                ✎ Edit details
+              </a>
+            </div>
           </div>
         </div>`;
   }
@@ -655,10 +940,30 @@
         ? `Resize ${selCount} → save ~${formatBytes(selSaved)}`
         : '';
     }
+    updateRunSummary();
+  }
+
+  /* v3.27.0 — One plain-English line describing exactly what pressing the
+     button will do. Replaces the three separate hint paragraphs that used to
+     sit under the Output, Quality and Backup controls. */
+  function updateRunSummary() {
+    const el = document.getElementById('mlr-run-summary');
+    if (!el) return;
+    const width   = getMlrSize();
+    const quality = document.getElementById('mlr-quality')?.value || '82';
+    const webp    = document.getElementById('mlr-output-fmt')?.value === 'webp';
+    const backup  = !!document.getElementById('mlr-backup')?.checked;
+    el.textContent = webp
+      ? `Creating a new WebP copy of each image at ${width}px wide, quality ${quality}. Originals are left untouched and URLs do not change.`
+      : `Resizing to ${width}px wide, keeping the original format at quality ${quality}, overwriting in place. `
+        + (backup ? 'Originals are backed up first and can be restored per image.'
+                  : 'No backup — originals cannot be restored afterwards.');
+    el.classList.toggle('lmt-run-summary-warn', !webp && !backup);
   }
 
   async function mlrLoadImages(page=1, append=false) {
     mlrPage = page;
+    window.LMTPages.remember('mlr', page);   // v3.23.0
     if (!append) {
       mlrSelected.clear(); updateMlrBulkBtn();
       if(mlrSelectAll) mlrSelectAll.checked = false;
@@ -696,6 +1001,7 @@
     if (label) label.textContent = `${d.total} image(s) — showing ${mlrLoaded}`;
 
     renderLoadMore('mlr-loadmore', mlrPage, mlrTotalPages, mlrLoaded, d.total, n => mlrLoadImages(n, true));
+    window.lmtHighlightReturn('mlr');   // v3.23.0
     setMlrStatus('');
     updateResizeEstimates();
   }
@@ -718,7 +1024,13 @@
   document.getElementById('mlr-search')?.addEventListener('keydown', e => { if(e.key==='Enter') mlrLoadImages(1); });
   // Auto-load the library on page load so the Resizer isn't empty on every refresh.
   // (Image Resizer is the default active tab; "Load Images" still works as a manual reload.)
-  if (document.getElementById('mlr-grid-wrap')) mlrLoadImages(1);
+  if (document.getElementById('mlr-grid-wrap')) {
+    // v3.23.0 — reopen on the remembered page, or on the page a Back link asked for.
+    const mlrStart = (window.LMTReturn.paged > 1 && lmtActiveTabName() === 'mlr')
+      ? window.LMTReturn.paged
+      : window.LMTPages.recall('mlr');
+    mlrLoadImages(mlrStart);
+  }
   ['mlr-sort','mlr-type'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { if (document.getElementById('mlr-grid')) mlrLoadImages(1); });
   });
@@ -733,7 +1045,9 @@
     const v = document.getElementById('mlr-quality-val');
     if(b) b.textContent = this.value;
     if(v) v.textContent = this.value;
+    updateRunSummary();
   });
+  document.getElementById('mlr-backup')?.addEventListener('change', updateRunSummary);
 
   // Output-format (keep original vs WebP copy) reactivity
   const mlrOutFmt = document.getElementById('mlr-output-fmt');
@@ -748,9 +1062,11 @@
     if (backupRow)  backupRow.style.display  = webp ? 'none' : '';
     if (backupNote) backupNote.style.display = webp ? 'none' : '';
     if (mlrBulkBtn) mlrBulkBtn.innerHTML = webp ? '\u25B6 Create WebP Copies' : '\u25B6 Resize Selected';
+    updateRunSummary();
   }
   mlrOutFmt?.addEventListener('change', syncMlrOutput);
   syncMlrOutput();
+  updateRunSummary();
 
   /* ── Saved custom sizes (named, reorderable, stored per browser) ── */
   const SAVED_SIZES_KEY = 'lmt_saved_sizes';
@@ -1004,6 +1320,7 @@
     post('lmt_alt_stats').then(res => {
       if (!res.success) return;
       const d=res.data, total=d.total||1;
+      window.lmtHomeCounts('alt', d);   // v3.23.0 — All tasks cards
       document.getElementById('alt-stat-total').textContent  = d.total;
       document.getElementById('alt-stat-has').textContent    = d.has_alt;
       document.getElementById('alt-stat-missing').textContent= d.missing;
@@ -1011,6 +1328,33 @@
       const misPct = Math.round((d.missing/total)*100);
       if(document.getElementById('alt-bar-has'))     document.getElementById('alt-bar-has').style.width=hasPct+'%';
       if(document.getElementById('alt-bar-missing')) document.getElementById('alt-bar-missing').style.width=misPct+'%';
+
+      // v3.20.0 — rail badge: anything missing alt, caption or description.
+      const gaps = (d.missing || 0) + (d.missing_caption || 0) + (d.missing_desc || 0);
+      const ct = document.getElementById('lmt-rail-ct-alt');
+      if (ct) {
+        ct.textContent = gaps > 999 ? '999+' : String(gaps);
+        ct.hidden = gaps === 0;
+        ct.title = `${d.missing || 0} missing alt · ${d.missing_caption || 0} missing caption · ${d.missing_desc || 0} missing description`;
+      }
+      if (typeof d.has_caption === 'number') {
+        const cs = document.getElementById('alt-stat-captions');
+        if (cs) cs.textContent = d.has_caption;
+      }
+      if (typeof d.has_desc === 'number') {
+        const ds = document.getElementById('alt-stat-descs');
+        if (ds) ds.textContent = d.has_desc;
+      }
+
+      // v3.27.0 — tile headline numbers + "% of library" sub-lines.
+      const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      setTxt('alt-stat-missing-caption', typeof d.missing_caption === 'number'
+        ? d.missing_caption : Math.max(0, (d.total || 0) - (d.has_caption || 0)));
+      setTxt('alt-stat-missing-desc', typeof d.missing_desc === 'number'
+        ? d.missing_desc : Math.max(0, (d.total || 0) - (d.has_desc || 0)));
+      setTxt('alt-sub-missing', d.total ? misPct + '% of library' : '\u00a0');
+      setTxt('alt-sub-has',     d.total ? hasPct + '% of library' : '\u00a0');
+      lmtSyncTiles('alt', document.getElementById('alt-filter')?.value || 'all');
     });
   }
 
@@ -1037,16 +1381,92 @@
               <textarea class="lmt-alt-input" id="alt-inp-${img.id}" placeholder="Enter alt text…">${escHtml(img.alt||'')}</textarea>
               <button class="lmt-save-btn" onclick="window.saveAlt(${img.id})">Save</button>
             </div>
-            <button class="lmt-ai-btn" id="alt-ai-btn-${img.id}" onclick="window.generateAiAlt(${img.id})" title="Generate alt text with AI (AWS Bedrock)">
-              ✨ AI Generate
-            </button>
+            <div class="lmt-card-actions">
+              <button class="lmt-ai-btn" id="alt-ai-btn-${img.id}" onclick="window.generateAiAlt(${img.id})" title="Generate alt text with AI (AWS Bedrock)">
+                ✨ Generate
+              </button>
+              <a class="lmt-edit-btn" href="${escHtml(window.lmtDetailUrl(img, 'alt', altPage))}" title="Open this image in Media Master">
+                ✎ Edit details
+              </a>
+            </div>
             <div class="lmt-ai-result lmt-hidden" id="alt-ai-result-${img.id}"></div>
+            ${metaMoreHtml(img)}
           </div>
         </div>`;
   }
 
+  /* v3.20.0 — Caption and Description live on the attachment post
+     (post_excerpt / post_content), not in meta. They're collapsed by
+     default so the grid stays scannable; the flags in the header show
+     what's missing without opening anything. */
+  function metaFlags(img) {
+    const flags = [];
+    if (img.has_caption === false) flags.push('<span class="lmt-chip lmt-chip-warn">No caption</span>');
+    if (img.has_desc    === false) flags.push('<span class="lmt-chip lmt-chip-muted">No description</span>');
+    return flags.join('');
+  }
+
+  function metaMoreHtml(img) {
+    const caret = '<svg class="lmt-caret" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    return `
+            <div class="lmt-meta-more">
+              <button type="button" class="lmt-meta-toggle" aria-expanded="false" aria-controls="alt-meta-${img.id}" onclick="window.lmtToggleMeta(${img.id})">
+                ${caret}<span>Caption &amp; description</span>
+                <span class="lmt-meta-flags">${metaFlags(img)}</span>
+              </button>
+              <div class="lmt-meta-fields" id="alt-meta-${img.id}">
+                <div class="lmt-meta-field">
+                  <div class="lmt-meta-field-head">
+                    <span>Caption</span>
+                    <button type="button" class="lmt-meta-ai" onclick="window.generateAiMeta(${img.id},'caption',this)">✨ Generate</button>
+                  </div>
+                  <textarea class="lmt-meta-input" id="alt-cap-${img.id}" placeholder="Shown beneath the image in most themes">${escHtml(img.caption || '')}</textarea>
+                </div>
+                <div class="lmt-meta-field">
+                  <div class="lmt-meta-field-head">
+                    <span>Description</span>
+                    <button type="button" class="lmt-meta-ai" onclick="window.generateAiMeta(${img.id},'description',this)">✨ Generate</button>
+                  </div>
+                  <textarea class="lmt-meta-input" id="alt-desc-${img.id}" placeholder="Longer text, shown on the attachment page">${escHtml(img.description || '')}</textarea>
+                </div>
+                <a class="lmt-card-detail-link" href="${escHtml(img.detail_url || '#')}">Open attachment page →</a>
+              </div>
+            </div>`;
+  }
+
+  window.lmtToggleMeta = function(id) {
+    const box = document.getElementById(`alt-meta-${id}`);
+    const btn = box?.previousElementSibling;
+    if (!box) return;
+    const open = box.classList.toggle('is-open');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+
+  /* Per-field AI for caption and description. Generates into the field
+     and leaves saving to the user — same contract as AI alt text. */
+  window.generateAiMeta = async function(id, field, btn) {
+    const target = document.getElementById(field === 'caption' ? `alt-cap-${id}` : `alt-desc-${id}`);
+    if (!target) return;
+    const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '✨ Generating…'; }
+    try {
+      const res = await post('lmt_meta_generate', { id, field });
+      if (res.success) {
+        target.value = res.data.text || '';
+        target.focus();
+      } else {
+        alert(res.data || 'AI generation failed.');
+      }
+    } catch (e) {
+      alert('AI generation failed: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = label || '✨ Generate'; }
+    }
+  };
+
   function loadAltPage(page=1, append=false) {
     altPage=page;
+    window.LMTPages.remember('alt', page);   // v3.23.0
     if(!append && altGridWrap) altGridWrap.innerHTML='<div class="lmt-loading">Loading…</div>';
     if(!append) altLoaded = 0;
     const filter = document.getElementById('alt-filter')?.value||'all';
@@ -1073,6 +1493,7 @@
       if(label) label.textContent = `${d.total} image(s) — showing ${altLoaded}`;
 
       renderLoadMore('alt-loadmore', altPage, altTotalPages, altLoaded, d.total, n=>loadAltPage(n, true));
+      window.lmtHighlightReturn('alt');   // v3.23.0
       const selAll = document.getElementById('alt-select-all');
       if (selAll) selAll.checked = false;
       initAiBanner();
@@ -1106,6 +1527,7 @@
   window.lmtAltFilter = function(val) {
     const f = document.getElementById('alt-filter');
     if (f) f.value = val;
+    lmtSyncTiles('alt', val);
     loadAltPage(1);
   };
 
@@ -1265,10 +1687,10 @@
           `<span class="lmt-ai-text">${escHtml(alt)}</span>` +
           `<button class="lmt-ai-use-btn" onclick="window.useAiAlt(${id},'${escHtml(alt).replace(/'/g,'&#39;')}')">Use this</button>`;
       }
-      if (btn) { btn.textContent = '✨ AI Generate'; btn.disabled = false; }
+      if (btn) { btn.textContent = '✨ Generate'; btn.disabled = false; }
     } catch(err) {
       if (result) { result.classList.remove('lmt-hidden'); result.className='lmt-ai-result lmt-ai-result-error'; result.textContent='✗ ' + err.message; }
-      if (btn) { btn.textContent = '✨ AI Generate'; btn.disabled = false; }
+      if (btn) { btn.textContent = '✨ Generate'; btn.disabled = false; }
     }
   };
 
@@ -1362,8 +1784,21 @@
   window.saveAlt = function(id) {
     const val  = document.getElementById(`alt-inp-${id}`)?.value || '';
     const card = document.getElementById(`alt-card-${id}`);
-    post('lmt_alt_save',{id,alt:val}).then(res=>{
-      if(!res.success){alert('Save failed');return;}
+    // v3.20.0 — one Save writes alt, caption and description together.
+    const capEl  = document.getElementById(`alt-cap-${id}`);
+    const descEl = document.getElementById(`alt-desc-${id}`);
+    const payload = { id, alt: val };
+    if (capEl)  payload.caption     = capEl.value;
+    if (descEl) payload.description = descEl.value;
+    post('lmt_alt_save',payload).then(res=>{
+      if(!res.success){alert(res.data || 'Save failed');return;}
+      const flags = card?.querySelector('.lmt-meta-flags');
+      if (flags) {
+        flags.innerHTML = metaFlags({
+          has_caption: (capEl  ? capEl.value.trim()  !== '' : true),
+          has_desc:    (descEl ? descEl.value.trim() !== '' : true)
+        });
+      }
       if(card){
         card.classList.toggle('lmt-card-done',!!val);
         const badge=card.querySelector('.lmt-img-status-badge');
@@ -1387,8 +1822,13 @@
       this.innerHTML = `&#128190; Saving ${i + 1}/${ids.length}…`;
       const val  = document.getElementById(`alt-inp-${id}`)?.value || '';
       const card = document.getElementById(`alt-card-${id}`);
+      const capEl2  = document.getElementById(`alt-cap-${id}`);
+      const descEl2 = document.getElementById(`alt-desc-${id}`);
+      const payload2 = { id, alt: val };
+      if (capEl2)  payload2.caption     = capEl2.value;
+      if (descEl2) payload2.description = descEl2.value;
       try {
-        const res = await post('lmt_alt_save', { id, alt: val });
+        const res = await post('lmt_alt_save', payload2);
         if (!res.success) { failed++; continue; }
         ok++;
         if (card) {
@@ -1413,7 +1853,7 @@
     setTimeout(()=>{this.textContent='⏹ Stop';this.disabled=false;},3000);
   });
 
-  document.getElementById('alt-filter')?.addEventListener('change', ()=>loadAltPage(1));
+  document.getElementById('alt-filter')?.addEventListener('change', function(){ lmtSyncTiles('alt', this.value); loadAltPage(1); });
   ['alt-sort','alt-type'].forEach(id => document.getElementById(id)?.addEventListener('change', ()=>loadAltPage(1)));
   document.getElementById('alt-search')?.addEventListener('keydown', e=>{ if(e.key==='Enter') loadAltPage(1); });
   document.getElementById('alt-refresh-btn')?.addEventListener('click', ()=>{ loadAltStats(); loadAltPage(altPage); });
@@ -1442,6 +1882,7 @@
     post('lmt_title_stats').then(res => {
       if (!res.success) return;
       const d = res.data, total = d.total || 1;
+      window.lmtHomeCounts('title', d); // v3.23.0 — All tasks cards
       const totalEl  = document.getElementById('title-stat-total');
       const customEl = document.getElementById('title-stat-custom');
       const autoEl   = document.getElementById('title-stat-auto');
@@ -1454,6 +1895,13 @@
       const autBar = document.getElementById('title-bar-auto');
       if (cusBar) cusBar.style.width = cusPct + '%';
       if (autBar) autBar.style.width = autPct + '%';
+
+      // v3.27.0 — tile sub-lines + active state.
+      const autoSub = document.getElementById('title-sub-auto');
+      const cusSub  = document.getElementById('title-sub-custom');
+      if (autoSub) autoSub.textContent = d.total ? autPct + '% of library' : '\u00a0';
+      if (cusSub)  cusSub.textContent  = d.total ? cusPct + '% done'       : '\u00a0';
+      lmtSyncTiles('title', document.getElementById('title-filter')?.value || 'all');
     });
   }
 
@@ -1480,9 +1928,14 @@
               <textarea class="lmt-alt-input" id="title-inp-${img.id}" placeholder="Enter image title…" style="min-height:38px">${escHtml(img.title||'')}</textarea>
               <button class="lmt-save-btn" onclick="window.saveTitle(${img.id})">Save</button>
             </div>
-            <button class="lmt-ai-btn" id="title-ai-btn-${img.id}" onclick="window.generateAiTitle(${img.id})" title="Generate a title with AI (AWS Bedrock)">
-              ✨ AI Generate
-            </button>
+            <div class="lmt-card-actions">
+              <button class="lmt-ai-btn" id="title-ai-btn-${img.id}" onclick="window.generateAiTitle(${img.id})" title="Generate a title with AI (AWS Bedrock)">
+                ✨ Generate
+              </button>
+              <a class="lmt-edit-btn" href="${escHtml(window.lmtDetailUrl(img, 'title', titlePage))}" title="Open this image in Media Master">
+                ✎ Edit details
+              </a>
+            </div>
             <div class="lmt-ai-result lmt-hidden" id="title-ai-result-${img.id}"></div>
           </div>
         </div>`;
@@ -1490,6 +1943,7 @@
 
   function loadTitlePage(page = 1, append = false) {
     titlePage = page;
+    window.LMTPages.remember('title', page); // v3.23.0
     if (!append && titleGridWrap) titleGridWrap.innerHTML = '<div class="lmt-loading">Loading…</div>';
     if (!append) titleLoaded = 0;
     const filter = document.getElementById('title-filter')?.value || 'all';
@@ -1516,6 +1970,7 @@
       if (label) label.textContent = `${d.total} image(s) — showing ${titleLoaded}`;
 
       renderLoadMore('title-loadmore', titlePage, titleTotalPages, titleLoaded, d.total, n => loadTitlePage(n, true));
+      window.lmtHighlightReturn('title'); // v3.23.0
       const selAll = document.getElementById('title-select-all');
       if (selAll) selAll.checked = false;
       initTitleAiBanner();
@@ -1549,6 +2004,7 @@
   window.lmtTitleFilter = function(val) {
     const f = document.getElementById('title-filter');
     if (f) f.value = val;
+    lmtSyncTiles('title', val);
     loadTitlePage(1);
   };
 
@@ -1689,10 +2145,10 @@
           `<span class="lmt-ai-text">${escHtml(title)}</span>` +
           `<button class="lmt-ai-use-btn" onclick="window.useAiTitle(${id},'${escHtml(title).replace(/'/g,'&#39;')}')">Use this</button>`;
       }
-      if (btn) { btn.textContent = '✨ AI Generate'; btn.disabled = false; }
+      if (btn) { btn.textContent = '✨ Generate'; btn.disabled = false; }
     } catch(err) {
       if (result) { result.classList.remove('lmt-hidden'); result.className = 'lmt-ai-result lmt-ai-result-error'; result.textContent = '✗ ' + err.message; }
-      if (btn) { btn.textContent = '✨ AI Generate'; btn.disabled = false; }
+      if (btn) { btn.textContent = '✨ Generate'; btn.disabled = false; }
     }
   };
 
@@ -1858,7 +2314,7 @@
     setTimeout(() => { this.textContent = '⏹ Stop'; this.disabled = false; }, 3000);
   });
 
-  document.getElementById('title-filter')?.addEventListener('change', () => loadTitlePage(1));
+  document.getElementById('title-filter')?.addEventListener('change', function(){ lmtSyncTiles('title', this.value); loadTitlePage(1); });
   ['title-sort','title-type'].forEach(id => document.getElementById(id)?.addEventListener('change', () => loadTitlePage(1)));
   document.getElementById('title-search')?.addEventListener('keydown', e => { if (e.key === 'Enter') loadTitlePage(1); });
   document.getElementById('title-refresh-btn')?.addEventListener('click', () => { loadTitleStats(); loadTitlePage(titlePage); });
@@ -2377,17 +2833,241 @@
     impLabel.textContent = 'Finishing the current file…';
   });
 
-  /* ── Init — v3.10.0 ── */
-  initViewControls('mlr',   mlrLoadImages);
-  initViewControls('alt',   loadAltPage);
-  initViewControls('title', loadTitlePage);
+  /* ── Init — v3.10.0 ──
+     v3.20.0: the attachment page (?view=attachment) is served from the
+     same menu slug, so this file loads there too. Skip the library
+     bootstrap when the tool panels aren't on the page — otherwise every
+     attachment view fires four pointless AJAX calls and then trips over
+     stat elements that don't exist. */
+  if (document.getElementById('lmt-panel-alt')) {
+    initViewControls('mlr',   mlrLoadImages);
+    initViewControls('alt',   loadAltPage);
+    initViewControls('title', loadTitlePage);
 
-  loadAltStats();
-  loadAltPage(1);
-  loadTitleStats();
-  loadTitlePage(1);
+    /* v3.23.0 — open each tool where it was left. A ?paged= in the URL
+       (set by an image page's Back link) wins over the stored page, and
+       only applies to the tab that link came from. */
+    const returnedTo   = lmtActiveTabName();
+    const returnedPage = window.LMTReturn.paged;
+    const startPage = function (tool) {
+      if (returnedPage > 1 && returnedTo === tool) return returnedPage;
+      return window.LMTPages.recall(tool);
+    };
 
-  expScan();
-  expLoadJobs();
+    loadAltStats();
+    loadAltPage(startPage('alt'));
+    loadTitleStats();
+    loadTitlePage(startPage('title'));
 
+    expScan();
+    expLoadJobs();
+  }
+
+})();
+
+/* ══════════════════════════════════════════════════════
+   v3.20.0 — RAIL COLLAPSE
+   Remembered per browser. Falls through silently in
+   private mode where localStorage throws.
+   ══════════════════════════════════════════════════════ */
+(function () {
+  const KEY   = 'lmt_rail_collapsed';
+  const shell = document.querySelector('.lmt-shell');
+  const btn   = document.getElementById('lmt-rail-collapse');
+  if (!shell) return;
+
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) { /* private mode */ }
+  if (saved === '1') shell.classList.add('is-collapsed');
+
+  function sync() {
+    const on = shell.classList.contains('is-collapsed');
+    if (btn) {
+      btn.setAttribute('aria-label', on ? 'Expand navigation' : 'Collapse navigation');
+      btn.title = on ? 'Expand navigation' : 'Collapse navigation';
+    }
+    // Collapsed rail hides labels, so the icon needs the name.
+    shell.querySelectorAll('.lmt-rail .lmt-tab').forEach(tab => {
+      const label = tab.querySelector('.lmt-tab-label');
+      if (label) tab.title = on ? label.textContent.trim() : '';
+    });
+  }
+  sync();
+
+  btn?.addEventListener('click', () => {
+    shell.classList.toggle('is-collapsed');
+    try { localStorage.setItem(KEY, shell.classList.contains('is-collapsed') ? '1' : '0'); } catch (e) { /* private mode */ }
+    sync();
+  });
+})();
+
+/* ══════════════════════════════════════════════════════
+   v3.20.0 — ATTACHMENT PAGE
+   Only runs on ?view=attachment. The markup is rendered
+   server-side; this adds save, per-field AI and copy URL.
+   ══════════════════════════════════════════════════════ */
+(function () {
+  const root = document.getElementById('lmt-att-root');
+  if (!root) return;
+
+  const id     = parseInt(root.dataset.id, 10);
+  const status = document.getElementById('lmt-att-status');
+  const fields = ['title', 'alt', 'caption', 'description'];
+
+  function el(f) { return document.getElementById('lmt-att-' + f); }
+
+  function say(msg, tone) {
+    if (!status) return;
+    status.textContent = msg;
+    status.style.color = tone === 'bad' ? 'var(--red)' : (tone === 'ok' ? 'var(--green)' : 'var(--text-3)');
+  }
+
+  function req(action, data) {
+    const body = new URLSearchParams(Object.assign({ action, nonce: window.LMT.nonce }, data));
+    return fetch(window.LMT.ajax, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    }).then(r => r.json());
+  }
+
+  /* ── Save all four fields in one request ── */
+  document.getElementById('lmt-att-save')?.addEventListener('click', async function () {
+    const payload = { id };
+    fields.forEach(f => { const n = el(f); if (n) payload[f] = n.value; });
+
+    this.disabled = true;
+    say('Saving…');
+    try {
+      const res = await req('lmt_alt_save', payload);
+      if (res.success) {
+        say('✓ Saved', 'ok');
+        setTimeout(() => say(''), 2500);
+      } else {
+        say('✗ ' + (res.data || 'Save failed'), 'bad');
+      }
+    } catch (e) {
+      say('✗ ' + e.message, 'bad');
+    } finally {
+      this.disabled = false;
+    }
+  });
+
+  /* ── Per-field AI. Alt and title reuse the existing endpoints so
+       their prompts stay in one place; caption and description use
+       the v3.20.0 endpoint. Nothing is saved until you press Save. ── */
+  async function generate(field, targetId, btn) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '✦ Generating…';
+    say('Asking the AI platform…');
+
+    let action = 'lmt_meta_generate', body = { id, field };
+    if (field === 'alt')   { action = 'lmt_ai_alt_generate';   body = { id }; }
+    if (field === 'title') { action = 'lmt_ai_title_generate'; body = { id }; }
+
+    try {
+      const res = await req(action, body);
+      if (res.success) {
+        target.value = res.data.text || res.data.alt || res.data.title || '';
+        target.focus();
+        say('Generated. Review it, then save.', 'ok');
+      } else {
+        say('✗ ' + (res.data || 'AI generation failed'), 'bad');
+      }
+    } catch (e) {
+      say('✗ ' + e.message, 'bad');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+
+  root.querySelectorAll('.lmt-att-ai').forEach(btn => {
+    btn.addEventListener('click', () => generate(btn.dataset.field, btn.dataset.target, btn));
+  });
+
+  /* ── Fill every empty field, one call at a time so a failure
+       part-way through still leaves the earlier results on screen. ── */
+  document.getElementById('lmt-att-fill')?.addEventListener('click', async function () {
+    const todo = [];
+    root.querySelectorAll('.lmt-att-ai').forEach(btn => {
+      const t = document.getElementById(btn.dataset.target);
+      if (t && t.value.trim() === '') todo.push(btn);
+    });
+    if (!todo.length) { say('Nothing empty to fill.'); return; }
+
+    this.disabled = true;
+    for (const btn of todo) {
+      await generate(btn.dataset.field, btn.dataset.target, btn);
+    }
+    this.disabled = false;
+    say('Filled ' + todo.length + ' field(s). Review, then save.', 'ok');
+  });
+
+  /* ── Copy URL ── */
+  document.getElementById('lmt-att-copy')?.addEventListener('click', function () {
+    const url = this.dataset.url || '';
+    const done = () => { const t = this.textContent; this.textContent = '✓ Copied'; setTimeout(() => { this.textContent = t; }, 1600); };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(() => say('Could not copy. Select the URL manually.', 'bad'));
+    } else {
+      say('Clipboard unavailable in this browser.', 'bad');
+    }
+  });
+})();
+
+/* ══════════════════════════════════════════════════════
+   v3.21.0 — SETTINGS PANEL
+   The Test Connection button moved out of an inline script
+   on the old options screen and into the enqueued bundle.
+   ══════════════════════════════════════════════════════ */
+(function () {
+  const btn = document.getElementById('lmt-test-btn');
+  const out = document.getElementById('lmt-test-result');
+  if (!btn || !out) return;
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    out.className = 'lmt-test-pending';
+    out.textContent = 'Testing…';
+
+    const body = new URLSearchParams({ action: 'lmt_ai_test', nonce: window.LMT.nonce });
+    fetch(window.LMT.ajax, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          out.className = 'lmt-test-ok';
+          out.textContent = `✓ Connected (${res.data.ms} ms) — reply: "${res.data.reply}"`;
+        } else {
+          out.className = 'lmt-test-bad';
+          out.textContent = '✗ ' + (res.data || 'Failed');
+        }
+      })
+      .catch(err => {
+        out.className = 'lmt-test-bad';
+        out.textContent = '✗ ' + err.message;
+      })
+      .finally(() => { btn.disabled = false; });
+  });
+
+  // Nudge the rail when there's no endpoint yet, so a fresh install has
+  // an obvious next step rather than silently disabled AI buttons.
+  const badge = document.getElementById('lmt-rail-ct-settings');
+  if (badge && window.LMT && window.LMT.has_key === false) {
+    badge.hidden = false;
+    badge.title = 'No Lookit AI endpoint set yet';
+  }
+
+  // Saved confirmation fades out rather than lingering.
+  const saved = document.getElementById('lmt-settings-saved');
+  if (saved) setTimeout(() => { saved.style.transition = 'opacity .4s'; saved.style.opacity = '0'; }, 3500);
 })();

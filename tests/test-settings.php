@@ -30,7 +30,7 @@ class Test_Lookit_Media_Master_Settings extends WP_UnitTestCase {
 		update_option( 'lmt_n8n_token', self::SECRET );
 
 		ob_start();
-		lmt_render_settings_page();
+		lmt_render_settings_panel();
 		$html = ob_get_clean();
 
 		$this->assertStringNotContainsString( self::SECRET, $html );

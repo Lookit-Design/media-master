@@ -39,6 +39,11 @@
   --amber-sub:     rgba(251,191,36,0.08);
   --amber-border:  rgba(251,191,36,0.25);
 
+  /* v3.23.0 — text-size multiplier. Every font-size in this file is
+     calc(Npx * var(--lmt-fs,1)), so changing this one number scales the
+     whole plugin. Set on .lmt-wrap by app.js from localStorage. */
+  --lmt-fs:        1;
+
   --radius-xl:     16px;
   --radius-lg:     12px;
   --radius-md:     8px;
@@ -114,7 +119,7 @@
 .lmt-logo-wrap img { width: 40px; height: 40px; object-fit: contain; }
 
 .lmt-topbar-title {
-  font-size: 17px;
+  font-size: calc(19px * var(--lmt-fs, 1));
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--text);
@@ -124,7 +129,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   color: var(--text-2);
   margin-top: 3px;
 }
@@ -138,7 +143,7 @@
 }
 
 .lmt-version-badge {
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -171,7 +176,7 @@
   cursor: pointer;
   color: var(--text-2);
   font-family: 'DM Sans', sans-serif;
-  font-size: 13.5px;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
   font-weight: 600;
   transition: color .15s, border-color .15s, background .15s;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
@@ -188,7 +193,7 @@
 }
 
 .lmt-tab-sub {
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 400;
   color: var(--text-3);
   letter-spacing: 0.2px;
@@ -242,7 +247,7 @@
   padding: 12px 18px;
   background: var(--s2);
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 600;
   letter-spacing: 0.7px;
   text-transform: uppercase;
@@ -255,7 +260,7 @@
 
 .lmt-section-desc {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   color: var(--text-3);
   font-weight: 400;
   text-transform: none;
@@ -337,7 +342,7 @@
 
 .lmt-drop-title {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: calc(16px * var(--lmt-fs, 1));
   font-weight: 600;
   color: var(--text);
   position: relative; z-index: 1;
@@ -347,14 +352,14 @@
 
 .lmt-drop-note {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   color: var(--text-3);
   position: relative; z-index: 1;
 }
 
 .lmt-filelist {
   margin: 10px 0 0;
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--blue-bright);
   word-break: break-all;
@@ -386,7 +391,7 @@
   gap: 10px;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
   cursor: pointer;
   border: 1px solid transparent;
   transition: background .12s, border-color .12s;
@@ -397,14 +402,14 @@
 
 .lmt-radio-group label span {
   font-weight: 700;
-  font-size: 13.5px;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--text);
   min-width: 54px;
 }
 
 .lmt-radio-group label em {
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   color: var(--text-3);
   font-style: normal;
 }
@@ -422,7 +427,7 @@
   padding: 5px 8px;
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   background: var(--s1);
   color: var(--text);
@@ -437,7 +442,7 @@
 .lmt-label {
   display: block;
   margin: 0 0 6px;
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -449,7 +454,7 @@
   padding: 9px 12px;
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
   font-family: 'DM Sans', sans-serif;
   background: var(--s1);
   color: var(--text);
@@ -468,7 +473,7 @@
   padding: 9px 12px;
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
   font-family: 'DM Sans', sans-serif;
   background: var(--s1);
   color: var(--text);
@@ -496,7 +501,7 @@
 
 .lmt-quality-bubble {
   font-family: 'DM Mono', monospace;
-  font-size: 12.5px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
   font-weight: 500;
   color: var(--blue-bright);
   background: var(--blue-sub);
@@ -510,7 +515,7 @@
 
 .lmt-note {
   margin: 6px 0 0;
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   color: var(--text-3);
   line-height: 1.5;
 }
@@ -520,7 +525,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
   color: var(--text-2);
   cursor: pointer;
 }
@@ -554,7 +559,7 @@
   background: var(--s3);
   color: var(--text-2);
   font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
   font-weight: 600;
   cursor: pointer;
   transition: background .12s, border-color .12s, color .12s, transform .05s, box-shadow .12s;
@@ -589,7 +594,7 @@
 }
 
 .lmt-status-text {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--text-3);
   margin-left: auto;
@@ -602,7 +607,7 @@
   gap: 12px;
   padding: 14px 18px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
   line-height: 1.6;
 }
 
@@ -624,7 +629,7 @@
   border: none;
   color: inherit;
   opacity: 0.6;
-  font-size: 20px;
+  font-size: calc(22px * var(--lmt-fs, 1));
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
@@ -644,7 +649,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
   font-weight: 600;
   color: var(--text-2);
   margin-bottom: 10px;
@@ -667,7 +672,7 @@
 }
 
 .lmt-progress-sub {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--text-3);
 }
@@ -676,7 +681,7 @@
   margin-top: 10px;
   max-height: 120px;
   overflow-y: auto;
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--text-3);
   border-top: 1px solid var(--border);
@@ -717,7 +722,7 @@
 .lmt-stat-red::before   { background: var(--red);   box-shadow: 0 0 12px rgba(248,113,113,0.4); }
 
 .lmt-stat-card strong {
-  font-size: 36px;
+  font-size: calc(40px * var(--lmt-fs, 1));
   font-weight: 700;
   letter-spacing: -1px;
   line-height: 1;
@@ -729,7 +734,7 @@
 .lmt-stat-red strong   { color: var(--red); }
 
 .lmt-stat-card span {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -808,11 +813,15 @@
 .lmt-img-status-badge {
   position: absolute;
   top: 8px; right: 8px;
-  font-size: 10px;
+  font-size: calc(11.5px * var(--lmt-fs, 1));
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 99px;
   letter-spacing: 0.3px;
+  /* The badge tints are near-transparent, so a green "Has alt" over a
+     green photo was unreadable. Darken whatever is behind it. */
+  backdrop-filter: blur(6px) brightness(0.45);
+  -webkit-backdrop-filter: blur(6px) brightness(0.45);
 }
 
 .lmt-badge-done { background: var(--green-sub); color: var(--green); border: 1px solid var(--green-border); }
@@ -829,7 +838,7 @@
 }
 
 .lmt-img-filename {
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--text-2);
   white-space: nowrap;
@@ -838,7 +847,7 @@
 }
 
 .lmt-img-dims {
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   color: var(--text-3);
   font-family: 'DM Mono', monospace;
 }
@@ -853,7 +862,7 @@
 .lmt-chip {
   display: inline-flex;
   align-items: center;
-  font-size: 10.5px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   line-height: 1;
   padding: 3px 7px;
   border-radius: 999px;
@@ -865,7 +874,7 @@
 
 /* ── Resize savings estimate ─────────────────────────────────────── */
 .lmt-resize-est {
-  font-size: 12.5px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
   font-weight: 600;
   color: var(--text-3);
   margin-top: 6px;
@@ -879,7 +888,7 @@
   border: 1px solid var(--green-border);
 }
 .lmt-resize-summary {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   font-weight: 600;
   color: var(--green);
   margin-left: 4px;
@@ -888,7 +897,7 @@
 
 /* ── One-click filter chip (toolbar) ─────────────────────────────── */
 .lmt-filter-chip {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   padding: 5px 11px;
   border-radius: 999px;
   background: var(--amber-sub);
@@ -937,14 +946,14 @@
   padding: 18px 24px;
   border-bottom: 1px solid var(--border);
 }
-.lmt-modal-title { font-weight: 600; color: var(--text); font-size: 18px; }
+.lmt-modal-title { font-weight: 600; color: var(--text); font-size: calc(20px * var(--lmt-fs, 1)); }
 .lmt-modal-close {
   background: transparent; border: none; color: var(--text-2);
-  font-size: 26px; line-height: 1; cursor: pointer; padding: 0 4px;
+  font-size: calc(30px * var(--lmt-fs, 1)); line-height: 1; cursor: pointer; padding: 0 4px;
 }
 .lmt-modal-close:hover { color: var(--text); }
 .lmt-modal-body { padding: 10px 24px 22px; overflow-y: auto; }
-.lmt-modal-loading, .lmt-modal-empty { color: var(--text-2); font-size: 14px; padding: 18px 0; }
+.lmt-modal-loading, .lmt-modal-empty { color: var(--text-2); font-size: calc(15px * var(--lmt-fs, 1)); padding: 18px 0; }
 .lmt-usage-list { list-style: none; margin: 0; padding: 0; }
 .lmt-usage-list li {
   display: flex; align-items: center; justify-content: space-between;
@@ -953,14 +962,14 @@
 .lmt-usage-list li:last-child { border-bottom: none; }
 .lmt-usage-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .lmt-usage-type {
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+  font-size: calc(12px * var(--lmt-fs, 1)); text-transform: uppercase; letter-spacing: 0.03em;
   color: var(--text-3); border: 1px solid var(--border-mid);
   padding: 3px 8px; border-radius: 999px; flex-shrink: 0;
 }
-.lmt-usage-name { color: var(--text); font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lmt-usage-status { font-size: 12px; color: var(--amber); }
+.lmt-usage-name { color: var(--text); font-size: calc(15.5px * var(--lmt-fs, 1)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmt-usage-status { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--amber); }
 .lmt-usage-links { display: flex; gap: 14px; flex-shrink: 0; }
-.lmt-usage-links a { color: var(--blue-bright); font-size: 13px; text-decoration: none; }
+.lmt-usage-links a { color: var(--blue-bright); font-size: calc(14px * var(--lmt-fs, 1)); text-decoration: none; }
 .lmt-usage-links a:hover { text-decoration: underline; }
 
 /* ── Saved custom sizes ──────────────────────────────────────────── */
@@ -975,12 +984,12 @@
 }
 .lmt-saved-row:hover { background: var(--s2); }
 .lmt-saved-row.lmt-dragging { opacity: 0.5; }
-.lmt-saved-handle { color: var(--text-3); cursor: grab; font-size: 13px; user-select: none; }
-.lmt-saved-row em { color: var(--text-3); font-size: 11px; font-family: 'DM Mono', monospace; }
+.lmt-saved-handle { color: var(--text-3); cursor: grab; font-size: calc(14px * var(--lmt-fs, 1)); user-select: none; }
+.lmt-saved-row em { color: var(--text-3); font-size: calc(12px * var(--lmt-fs, 1)); font-family: 'DM Mono', monospace; }
 .lmt-saved-del {
   margin-left: auto;
   background: transparent; border: none; color: var(--text-3);
-  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px;
+  font-size: calc(17px * var(--lmt-fs, 1)); line-height: 1; cursor: pointer; padding: 0 4px;
 }
 .lmt-saved-del:hover { color: var(--red, #dc3232); }
 .lmt-saved-add {
@@ -1059,7 +1068,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
   color: var(--text-2);
 }
 
@@ -1075,7 +1084,7 @@
 }
 
 .lmt-loadmore:empty { display: none; }
-.lmt-loadmore-info { font-size: 12px; color: var(--text-3); font-family: 'DM Mono', monospace; }
+.lmt-loadmore-info { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--text-3); font-family: 'DM Mono', monospace; }
 
 /* ── List view mode ──────────────────────────────────────────────── */
 .lmt-image-grid-wrap.lmt-list .lmt-image-grid {
@@ -1132,7 +1141,7 @@
 
 .lmt-alt-input {
   flex: 1;
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   font-family: 'DM Sans', sans-serif;
   padding: 6px 8px;
   border: 1px solid var(--border-mid);
@@ -1150,7 +1159,7 @@
 
 .lmt-save-btn {
   padding: 5px 9px;
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 600;
   border-radius: var(--radius-sm);
   border: 1px solid var(--blue-border);
@@ -1165,7 +1174,7 @@
 
 /* MLR card action button */
 .lmt-restore-btn {
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 600;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
@@ -1201,7 +1210,7 @@
   background: var(--s2);
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   font-family: 'DM Mono', monospace;
   color: var(--text-3);
   line-height: 1.6;
@@ -1215,7 +1224,7 @@
   border: 1px solid var(--border-mid);
   border-radius: 5px;
   padding: 2px 8px;
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -1230,7 +1239,7 @@
   border: 1px solid var(--green-border);
   border-radius: 99px;
   padding: 3px 10px;
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
   font-weight: 700;
 }
 
@@ -1257,7 +1266,7 @@
   color: var(--text-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
   font-family: 'DM Sans', sans-serif;
   transition: background .12s, color .12s;
 }
@@ -1265,14 +1274,14 @@
 .lmt-pagination button:hover { background: var(--s3); color: var(--text); }
 .lmt-pagination button.active { background: var(--blue); color: #fff; border-color: transparent; }
 .lmt-pagination button:disabled { opacity: .35; cursor: default; }
-.lmt-pagination span { color: var(--text-3); font-size: 13px; }
+.lmt-pagination span { color: var(--text-3); font-size: calc(14px * var(--lmt-fs, 1)); }
 
 /* ── Empty / loading states ──────────────────────────────────────── */
 .lmt-grid-empty {
   padding: 60px 20px;
   text-align: center;
   color: var(--text-3);
-  font-size: 14px;
+  font-size: calc(15px * var(--lmt-fs, 1));
   border: 1px dashed var(--border-mid);
   border-radius: var(--radius-lg);
 }
@@ -1281,14 +1290,14 @@
   padding: 40px;
   text-align: center;
   color: var(--text-3);
-  font-size: 13px;
+  font-size: calc(14px * var(--lmt-fs, 1));
 }
 
 /* ── Utilities ───────────────────────────────────────────────────── */
 .lmt-hidden { display: none !important; }
 
 .lmt-count-label {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   color: var(--text-3);
   font-family: 'DM Mono', monospace;
   margin-bottom: 12px;
@@ -1308,19 +1317,19 @@
   --blue-sub:      rgba(14,127,192,0.07);
   --blue-border:   rgba(14,127,192,0.22);
 
-  --bg:            #f0f2f5;
+  --bg:            #f3f5f9;
   --s1:            #ffffff;
-  --s2:            #f5f7fa;
-  --s3:            #ebeef3;
-  --s4:            #dde2ea;
+  --s2:            #ffffff;
+  --s3:            #eef2f7;
+  --s4:            #e2e8f1;
 
-  --border:        rgba(0,0,0,0.06);
-  --border-mid:    rgba(0,0,0,0.10);
-  --border-hi:     rgba(0,0,0,0.18);
+  --border:        rgba(15,23,42,0.09);
+  --border-mid:    rgba(15,23,42,0.13);
+  --border-hi:     rgba(15,23,42,0.20);
 
-  --text:          #111827;
-  --text-2:        #4b5563;
-  --text-3:        #9ca3af;
+  --text:          #16202e;
+  --text-2:        #5b6879;
+  --text-3:        #8d99a8;
 
   --green:         #16a34a;
   --green-sub:     rgba(22,163,74,0.08);
@@ -1404,7 +1413,7 @@
   background: var(--s2);
   color: var(--text-2);
   font-family: 'DM Sans', sans-serif;
-  font-size: 12.5px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
   font-weight: 600;
   cursor: pointer;
   transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
@@ -1482,13 +1491,13 @@
 }
 
 .lmt-ai-banner-text strong {
-  font-size: 13.5px;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
   font-weight: 700;
   color: var(--text);
 }
 
 .lmt-ai-banner-text span {
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   color: var(--text-2);
 }
 
@@ -1502,7 +1511,7 @@
 .lmt-ai-btn {
   width: 100%;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   font-weight: 600;
   font-family: 'DM Sans', sans-serif;
   border-radius: var(--radius-sm);
@@ -1530,7 +1539,7 @@
   margin-top: 7px;
   padding: 9px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: calc(13px * var(--lmt-fs, 1));
   line-height: 1.5;
   border: 1px solid var(--border-mid);
   background: var(--s3);
@@ -1552,7 +1561,7 @@
 }
 
 .lmt-ai-label {
-  font-size: 10.5px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -1561,14 +1570,14 @@
 
 .lmt-ai-text {
   color: var(--text);
-  font-size: 12.5px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
   line-height: 1.5;
 }
 
 .lmt-ai-use-btn {
   align-self: flex-start;
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: calc(12px * var(--lmt-fs, 1));
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 1px solid var(--blue-border);
@@ -1602,7 +1611,7 @@
 /* Small button variant */
 .lmt-btn-sm {
   padding: 6px 12px !important;
-  font-size: 12px !important;
+  font-size: calc(13px * var(--lmt-fs, 1)) !important;
 }
 
 /* ── Light mode overrides for AI components ──────────────────────── */
@@ -1632,8 +1641,8 @@
   border: 1px solid var(--blue-border);
   border-radius: var(--radius-md);
 }
-.lmt-x-summary-main { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text); }
-.lmt-x-summary-main strong { font-size: 15px; font-weight: 600; font-family: 'DM Mono', monospace; }
+.lmt-x-summary-main { display: flex; align-items: center; gap: 10px; font-size: calc(15px * var(--lmt-fs, 1)); color: var(--text); }
+.lmt-x-summary-main strong { font-size: calc(16px * var(--lmt-fs, 1)); font-weight: 600; font-family: 'DM Mono', monospace; }
 .lmt-x-summary button { margin-left: auto; }
 .lmt-x-dot { width: 3px; height: 3px; border-radius: 99px; background: var(--text-3); }
 
@@ -1647,15 +1656,15 @@
 .lmt-x-job-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .lmt-x-job-main .lmt-img-status-badge { position: static; flex-shrink: 0; }
 .lmt-x-fname {
-  font-size: 13.5px; color: var(--text);
+  font-size: calc(14.5px * var(--lmt-fs, 1)); color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.lmt-x-jobmeta { font-size: 12px; color: var(--text-3); margin-top: 3px; font-family: 'DM Mono', monospace; }
+.lmt-x-jobmeta { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--text-3); margin-top: 3px; font-family: 'DM Mono', monospace; }
 .lmt-x-job-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .lmt-x-job-actions a.lmt-btn { text-decoration: none; }
 
 #exp-folders-note code {
-  font-family: 'DM Mono', monospace; font-size: 11.5px;
+  font-family: 'DM Mono', monospace; font-size: calc(12.5px * var(--lmt-fs, 1));
   padding: 1px 5px; border-radius: 4px;
   background: var(--s3); color: var(--text-2);
 }
@@ -1676,3 +1685,1480 @@
 
 #imp-queue .lmt-x-ftype { min-width: 52px; }
 #imp-img-quality-row { transition: opacity .15s ease; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.20.0 — RAIL NAVIGATION
+   The tab buttons keep .lmt-tab so the existing activateTab() logic
+   is untouched. Everything below re-shapes that row into a sidebar.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-shell {
+  display: grid;
+  grid-template-columns: 218px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.lmt-shell-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lmt-tabnav.lmt-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px 14px;
+  background: var(--s1);
+  border-bottom: none;
+  border-right: 1px solid var(--border-mid);
+  align-items: stretch;
+}
+
+.lmt-rail-group {
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  font-weight: 700;
+  color: var(--text-3);
+  padding: 14px 11px 6px;
+}
+.lmt-rail-group:first-child { padding-top: 4px; }
+
+.lmt-rail .lmt-tab {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border-bottom: none;
+  border-radius: var(--radius-md);
+  bottom: 0;
+  font-size: calc(14px * var(--lmt-fs, 1));
+  text-decoration: none;
+  text-align: left;
+}
+
+.lmt-rail .lmt-tab svg {
+  display: block;
+  margin-bottom: 0;
+  flex: none;
+}
+
+.lmt-rail .lmt-tab-label { flex: 1; min-width: 0; }
+
+.lmt-rail .lmt-tab-sub {
+  flex-basis: 100%;
+  padding-left: 24px;
+  margin-top: -1px;
+  font-size: calc(12px * var(--lmt-fs, 1));
+  line-height: 1.35;
+}
+
+.lmt-rail .lmt-tab:hover {
+  background: var(--s2);
+  color: var(--text);
+}
+
+.lmt-rail .lmt-tab.active {
+  background: rgba(26,143,209,0.10);
+  border-bottom-color: transparent;
+  box-shadow: inset 2px 0 0 var(--blue);
+}
+
+.lmt-rail-count {
+  flex: none;
+  font-size: calc(12px * var(--lmt-fs, 1));
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 99px;
+  background: var(--s3);
+  color: var(--text-3);
+}
+.lmt-rail-count-warn {
+  background: var(--red-sub);
+  color: var(--red);
+  border: 1px solid var(--red-border);
+}
+.lmt-rail-count[hidden] { display: none; }
+
+.lmt-rail-spacer { flex: 1; min-height: 12px; }
+
+.lmt-rail-collapse {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.lmt-rail-collapse:hover { background: var(--s2); color: var(--text-2); }
+.lmt-rail-collapse svg { transition: transform .2s; }
+
+/* ── Collapsed state ── */
+.lmt-shell.is-collapsed { grid-template-columns: 58px minmax(0, 1fr); }
+.lmt-shell.is-collapsed .lmt-tabnav.lmt-rail { padding-left: 8px; padding-right: 8px; }
+.lmt-shell.is-collapsed .lmt-tab-label,
+.lmt-shell.is-collapsed .lmt-tab-sub,
+.lmt-shell.is-collapsed .lmt-rail-group { display: none; }
+.lmt-shell.is-collapsed .lmt-rail .lmt-tab { justify-content: center; padding: 11px 0; }
+.lmt-shell.is-collapsed .lmt-rail-count {
+  position: absolute; top: 3px; right: 3px;
+  padding: 1px 5px; font-size: calc(11.5px * var(--lmt-fs, 1));
+}
+.lmt-shell.is-collapsed .lmt-rail .lmt-tab { position: relative; }
+.lmt-shell.is-collapsed .lmt-rail-collapse { justify-content: center; }
+.lmt-shell.is-collapsed .lmt-rail-collapse svg { transform: rotate(180deg); }
+
+/* ── Narrow screens: rail returns to a scrolling row ── */
+@media (max-width: 900px) {
+  .lmt-shell, .lmt-shell.is-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .lmt-tabnav.lmt-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-mid);
+    padding: 8px 12px;
+  }
+  .lmt-rail-group, .lmt-rail-spacer, .lmt-rail-collapse { display: none; }
+  .lmt-rail .lmt-tab { width: auto; flex-wrap: nowrap; white-space: nowrap; }
+  .lmt-rail .lmt-tab-sub { display: none; }
+  .lmt-shell.is-collapsed .lmt-tab-label { display: block; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.20.0 — CAPTION & DESCRIPTION ON THE CARD
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-meta-more {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.lmt-meta-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 3px 0;
+  color: var(--text-3);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: color .15s;
+}
+.lmt-meta-toggle:hover { color: var(--blue-bright); }
+/* flex:none — without it the caret gets squeezed to zero width in a
+   narrow grid card and silently disappears. */
+.lmt-meta-toggle .lmt-caret { transition: transform .18s; flex: none; }
+.lmt-meta-toggle[aria-expanded="true"] .lmt-caret { transform: rotate(90deg); }
+/* Wrap rather than overflow: a grid card is too narrow to fit the label
+   and both flags on one line, and margin-left:auto pushed them past the
+   card edge instead of dropping them to a second row. */
+.lmt-meta-toggle { flex-wrap: wrap; row-gap: 4px; text-align: left; }
+.lmt-meta-toggle .lmt-meta-flags {
+  margin-left: 8px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.lmt-meta-fields { display: none; margin-top: 8px; }
+.lmt-meta-fields.is-open { display: block; }
+
+.lmt-meta-field + .lmt-meta-field { margin-top: 8px; }
+
+.lmt-meta-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.lmt-meta-field-head span {
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.lmt-meta-ai {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--blue);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(12px * var(--lmt-fs, 1));
+  font-weight: 600;
+  cursor: pointer;
+}
+.lmt-meta-ai:hover { color: var(--blue-bright); }
+.lmt-meta-ai:disabled { opacity: .45; cursor: default; }
+
+.lmt-meta-input {
+  width: 100%;
+  min-height: 48px;
+  background: var(--bg);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
+  line-height: 1.5;
+  padding: 7px 9px;
+  resize: vertical;
+}
+.lmt-meta-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-glow);
+}
+
+.lmt-card-detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+  color: var(--text-3);
+  text-decoration: none;
+}
+.lmt-card-detail-link:hover { color: var(--blue-bright); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.20.0 — ATTACHMENT PAGE
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-att-crumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 28px;
+  background: var(--s1);
+  border-bottom: 1px solid var(--border-mid);
+}
+.lmt-att-crumb-file {
+  font-family: 'DM Mono', monospace;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lmt-att-crumb-nav { margin-left: auto; display: flex; gap: 6px; }
+.lmt-btn-disabled { opacity: .35; pointer-events: none; }
+
+.lmt-att-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 20px;
+  align-items: start;
+}
+.lmt-att-left, .lmt-att-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+.lmt-att-preview {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.lmt-att-canvas {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  padding: 18px;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,.02) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.02) 75%),
+    linear-gradient(45deg, rgba(255,255,255,.02) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.02) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+.lmt-att-canvas img { max-width: 100%; max-height: 460px; display: block; border-radius: var(--radius-sm); }
+
+.lmt-att-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--border);
+}
+.lmt-att-fact {
+  padding: 10px 15px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.lmt-att-fact:nth-child(2n) { border-right: none; }
+.lmt-att-fact .k {
+  display: block;
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.lmt-att-fact .v {
+  display: block;
+  margin-top: 3px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lmt-att-mono { font-family: 'DM Mono', monospace; font-size: calc(12.5px * var(--lmt-fs, 1)); }
+
+.lmt-att-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.lmt-att-field + .lmt-att-field { margin-top: 13px; }
+.lmt-att-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.lmt-att-label span {
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.lmt-att-ai {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--blue);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+  cursor: pointer;
+}
+.lmt-att-ai:hover { color: var(--blue-bright); }
+.lmt-att-ai:disabled { opacity: .45; cursor: default; }
+
+.lmt-att-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(14px * var(--lmt-fs, 1));
+  line-height: 1.55;
+  padding: 9px 11px;
+  resize: vertical;
+}
+.lmt-att-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-glow);
+}
+.lmt-att-input[readonly] { opacity: .6; cursor: not-allowed; }
+
+.lmt-att-save-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 1180px) {
+  .lmt-att-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.20.1 — LIST VIEW ROW GEOMETRY
+
+   List mode previously set aspect-ratio:auto on the thumb wrap, so a
+   portrait image (1706×2560) rendered at its natural ratio and dragged
+   the whole row to ~225px tall while a landscape row stayed at ~90px.
+   Every row is now a fixed 4:3 tile: uniform height regardless of the
+   source ratio, and the row no longer grows when the caption block opens.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-image-grid-wrap.lmt-list .lmt-img-card {
+  align-items: flex-start;
+  padding: 10px;
+  gap: 14px;
+}
+
+.lmt-image-grid-wrap.lmt-list .lmt-img-thumb-wrap {
+  aspect-ratio: 4 / 3;
+  align-self: flex-start;
+  flex: none;
+  width: clamp(120px, calc(var(--lmt-card-min, 200px) * 0.62), 190px);
+  min-width: 120px;
+  max-width: 190px;
+  border-radius: var(--radius-md);
+}
+
+.lmt-image-grid-wrap.lmt-list .lmt-img-thumb {
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Checkbox and status badge sit on opposite corners so they can't
+   collide on the narrower list tile. */
+.lmt-image-grid-wrap.lmt-list .lmt-img-status-badge {
+  top: 5px; right: 5px;
+  font-size: calc(11px * var(--lmt-fs, 1));
+  padding: 1.5px 6px;
+}
+.lmt-image-grid-wrap.lmt-list .lmt-img-select {
+  top: auto; bottom: 5px; left: 5px;
+  width: 16px; height: 16px;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.35);
+  border-radius: 3px;
+}
+
+/* The body no longer stretches to match the tile — it sizes to content,
+   which is what keeps a row with an empty alt field compact. */
+.lmt-image-grid-wrap.lmt-list .lmt-img-body {
+  flex: 1 1 auto;
+  align-items: flex-start;
+  align-content: flex-start;
+  min-height: calc(clamp(120px, calc(var(--lmt-card-min, 200px) * 0.62), 190px) * 0.75);
+  padding: 2px 6px 2px 0;
+  gap: 8px 14px;
+}
+
+.lmt-image-grid-wrap.lmt-list .lmt-img-filename {
+  flex: 1 1 200px;
+  align-self: center;
+  word-break: break-word;
+}
+.lmt-image-grid-wrap.lmt-list .lmt-img-dims,
+.lmt-image-grid-wrap.lmt-list .lmt-chips { align-self: center; }
+
+.lmt-image-grid-wrap.lmt-list .lmt-alt-row { align-self: center; }
+.lmt-image-grid-wrap.lmt-list .lmt-ai-btn { align-self: center; }
+
+/* Caption & description: full width on its own line, two columns so
+   opening it costs one row of height rather than two. */
+.lmt-image-grid-wrap.lmt-list .lmt-meta-more {
+  flex: 1 1 100%;
+  margin-top: 2px;
+}
+.lmt-image-grid-wrap.lmt-list .lmt-meta-toggle { width: auto; }
+.lmt-image-grid-wrap.lmt-list .lmt-meta-flags { margin-left: 10px; flex-wrap: nowrap; }
+.lmt-image-grid-wrap.lmt-list .lmt-meta-fields.is-open {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  align-items: start;
+}
+.lmt-image-grid-wrap.lmt-list .lmt-meta-field + .lmt-meta-field { margin-top: 0; }
+.lmt-image-grid-wrap.lmt-list .lmt-card-detail-link {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .lmt-image-grid-wrap.lmt-list .lmt-meta-fields.is-open { grid-template-columns: 1fr; }
+  .lmt-image-grid-wrap.lmt-list .lmt-meta-field + .lmt-meta-field { margin-top: 8px; }
+}
+
+@media (max-width: 782px) {
+  .lmt-image-grid-wrap.lmt-list .lmt-img-card { flex-direction: row; }
+  .lmt-image-grid-wrap.lmt-list .lmt-img-thumb-wrap { width: 110px; min-width: 110px; }
+  .lmt-image-grid-wrap.lmt-list .lmt-img-body { min-height: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.21.0 — PAIRED CARD ACTIONS (AI Generate · Edit Details)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+/* The AI button carried its own top margin from when it stood alone. */
+.lmt-card-actions .lmt-ai-btn { margin-top: 0; flex: 1 1 50%; min-width: 0; }
+/* Both labels must stay on one line at the narrowest grid card, so the
+   padding is tighter here than on a standalone full-width button. */
+.lmt-card-actions .lmt-ai-btn,
+.lmt-card-actions .lmt-edit-btn {
+  padding-left: 6px;
+  padding-right: 6px;
+  white-space: nowrap;
+}
+
+.lmt-edit-btn {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  font-weight: 600;
+  font-family: 'DM Sans', sans-serif;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-mid);
+  background: var(--s2);
+  color: var(--text-2);
+  text-decoration: none;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.lmt-edit-btn:hover {
+  background: var(--s3);
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+.lmt-edit-btn:focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 1px;
+}
+
+/* In list view the pair sits inline with the rest of the row. */
+.lmt-image-grid-wrap.lmt-list .lmt-card-actions {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 0;
+}
+.lmt-image-grid-wrap.lmt-list .lmt-card-actions .lmt-ai-btn,
+.lmt-image-grid-wrap.lmt-list .lmt-edit-btn { flex: 0 0 auto; width: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.21.0 — SETTINGS PANEL
+   Was the stock grey WordPress form table on its own screen; now a
+   panel inside the plugin using the same tokens as everything else.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-settings-form { margin: 0; }
+
+.lmt-settings-testline {
+  min-height: 18px;
+  margin: -6px 0 14px;
+  font-size: calc(13.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+}
+.lmt-settings-testline:empty { display: none; }
+.lmt-test-pending { color: var(--text-2); }
+.lmt-test-ok      { color: var(--green); }
+.lmt-test-bad     { color: var(--red); }
+
+.lmt-set-field + .lmt-set-field { margin-top: 16px; }
+
+.lmt-set-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: calc(12px * var(--lmt-fs, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.lmt-set-optional {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.lmt-set-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: calc(14px * var(--lmt-fs, 1));
+  line-height: 1.55;
+  padding: 9px 11px;
+}
+.lmt-set-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-glow);
+}
+.lmt-set-textarea { resize: vertical; min-height: 96px; }
+
+.lmt-set-note {
+  margin: 6px 0 0;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  line-height: 1.55;
+  color: var(--text-3);
+}
+.lmt-set-note code {
+  background: var(--s3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: 'DM Mono', monospace;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  color: var(--text-2);
+}
+
+.lmt-set-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 18px;
+}
+.lmt-set-grid .lmt-set-field + .lmt-set-field { margin-top: 0; }
+
+.lmt-set-prose {
+  margin: 0;
+  font-size: calc(14px * var(--lmt-fs, 1));
+  line-height: 1.65;
+  color: var(--text-2);
+  max-width: 78ch;
+}
+
+.lmt-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 20px;
+}
+
+.lmt-alert-ok {
+  background: var(--green-sub);
+  border: 1px solid var(--green-border);
+  color: var(--green);
+}
+
+@media (max-width: 1000px) {
+  .lmt-set-grid { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.22.0 — SETTINGS CHECKBOX
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-set-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.lmt-set-check input[type="checkbox"] {
+  flex: none;
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+.lmt-set-check > span { min-width: 0; }
+.lmt-set-check strong {
+  display: block;
+  font-size: calc(14px * var(--lmt-fs, 1));
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.lmt-set-check .lmt-set-note {
+  display: block;
+  margin-top: 0;
+  max-width: 78ch;
+}
+.lmt-set-check:hover strong { color: var(--blue-bright); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.23.0 — ALL TASKS landing, text-size control, return highlight
+   Additive only. Nothing above this block was restyled; the new
+   classes sit alongside the existing ones so every current screen
+   renders exactly as it did in 3.22.0.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── All tasks ─────────────────────────────────────────────────── */
+.lmt-home-head { margin-bottom: 22px; }
+
+.lmt-home-title {
+  margin: 0;
+  font-size: calc(22px * var(--lmt-fs, 1));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.lmt-home-lede {
+  margin: 7px 0 0;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
+  line-height: 1.6;
+  color: var(--text-2);
+  max-width: 64ch;
+}
+
+.lmt-home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+.lmt-home-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  text-align: left;
+  background: var(--s1);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .14s ease, border-color .14s ease;
+}
+
+.lmt-home-card:hover {
+  border-color: var(--blue-border);
+  transform: translateY(-2px);
+}
+
+.lmt-home-card:focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+
+.lmt-home-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--blue-sub);
+  border: 1px solid var(--blue-border);
+  color: var(--blue-bright);
+}
+
+.lmt-home-t {
+  font-size: calc(15.5px * var(--lmt-fs, 1));
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.lmt-home-d {
+  font-size: calc(13.5px * var(--lmt-fs, 1));
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.lmt-home-stat {
+  margin-top: auto;
+  padding-top: 9px;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  font-weight: 600;
+  color: var(--blue-bright);
+}
+
+.lmt-home-resume {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.lmt-home-attn .lmt-home-ico {
+  background: var(--amber-sub);
+  border-color: var(--amber-border);
+  color: var(--amber);
+}
+
+.lmt-home-attn .lmt-home-stat { color: var(--amber); }
+
+.lmt-home-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.lmt-home-stats .lmt-stat-card { padding: 16px 18px; }
+.lmt-home-stats .lmt-stat-ok::before  { background: var(--green); }
+.lmt-home-stats .lmt-stat-bad::before { background: var(--red); }
+
+.lmt-stat-n {
+  font-size: calc(28px * var(--lmt-fs, 1));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.lmt-stat-ok  .lmt-stat-n { color: var(--green); }
+.lmt-stat-bad .lmt-stat-n { color: var(--red); }
+
+.lmt-stat-l {
+  font-size: calc(12px * var(--lmt-fs, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-top: 7px;
+}
+
+/* ── Text size control ─────────────────────────────────────────── */
+.lmt-fs-opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.lmt-fs-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 13px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-mid);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.lmt-fs-opt:hover { border-color: var(--blue-border); }
+
+.lmt-fs-opt:focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+
+.lmt-fs-opt.active {
+  border-color: var(--blue-border);
+  background: var(--blue-sub);
+}
+
+.lmt-fs-opt-a {
+  font-weight: 700;
+  font-size: calc(14px * var(--lmt-fs, 1));
+}
+
+.lmt-fs-opt-b {
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  color: var(--text-2);
+}
+
+.lmt-section-note {
+  margin-left: auto;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  color: var(--text-3);
+}
+
+/* ── Coming back from an image page ────────────────────────────── */
+.lmt-thumb-link {
+  display: block;
+  line-height: 0;
+  text-decoration: none;
+}
+
+.lmt-card-returned {
+  animation: lmt-return-flash 2.2s ease;
+}
+
+@keyframes lmt-return-flash {
+  0%, 55% { box-shadow: 0 0 0 2px var(--blue-bright); }
+  100%    { box-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lmt-home-card { transition: none; }
+  .lmt-card-returned { animation: none; box-shadow: 0 0 0 2px var(--blue-bright); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.24.0 — LOOK PASS
+   Brings the tool screens in line with the approved mockup: page heads
+   in plain language, quieter section headers, roomier cards, softer
+   surfaces. Structural rules above are unchanged; these are the last
+   declarations in the file so they win on equal specificity.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Page head ─────────────────────────────────────────────────── */
+.lmt-page-head { margin-bottom: 4px; }
+
+.lmt-crumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.lmt-crumb-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--blue-bright);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.lmt-crumb-link:hover { color: var(--blue); }
+.lmt-crumb-link:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.lmt-crumb-sep { color: var(--text-3); }
+
+.lmt-page-title {
+  margin: 0;
+  font-size: calc(22px * var(--lmt-fs, 1));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.lmt-page-lede {
+  margin: 7px 0 0;
+  font-size: calc(14.5px * var(--lmt-fs, 1));
+  line-height: 1.6;
+  color: var(--text-2);
+  max-width: 66ch;
+}
+
+/* ── Quieter section headers ───────────────────────────────────── */
+.lmt-section-head {
+  padding: 14px 20px;
+  background: transparent;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+
+.lmt-section-title { color: var(--text); }
+
+.lmt-section {
+  border-color: var(--border);
+  border-radius: var(--radius-xl);
+}
+
+.lmt-light .lmt-section { box-shadow: 0 1px 2px rgba(15,23,42,0.05); }
+
+.lmt-section-body { padding: 4px 20px 20px; }
+
+/* ── Roomier shell ─────────────────────────────────────────────── */
+.lmt-panel-inner {
+  padding: 26px 30px 40px;
+  gap: 22px;
+}
+
+.lmt-rail-group {
+  font-size: calc(11px * var(--lmt-fs, 1));
+  letter-spacing: 0.11em;
+  padding: 16px 12px 7px;
+}
+
+.lmt-tab { padding: 12px 14px 13px; gap: 3px; }
+.lmt-tab-sub { line-height: 1.45; }
+
+/* ── Cards and rows ────────────────────────────────────────────── */
+.lmt-img-card {
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.lmt-light .lmt-img-card { box-shadow: 0 1px 2px rgba(15,23,42,0.05); }
+.lmt-img-card:hover { border-color: var(--border-mid); }
+
+.lmt-img-body { padding: 14px 15px; }
+.lmt-img-filename { line-height: 1.45; }
+
+.lmt-alt-input { line-height: 1.5; padding: 10px 12px; }
+
+/* ── Controls ──────────────────────────────────────────────────── */
+.lmt-btn { padding: 10px 17px; border-radius: var(--radius-md); }
+.lmt-select { padding: 10px 13px; border-radius: var(--radius-md); }
+
+.lmt-stat-card { border-color: var(--border); border-radius: var(--radius-xl); }
+.lmt-light .lmt-stat-card { box-shadow: 0 1px 2px rgba(15,23,42,0.05); }
+
+/* ── Radio rows read as options, not a settings list ───────────── */
+.lmt-radio-group { gap: 7px; }
+
+.lmt-radio-group label,
+.lmt-radio-row {
+  padding: 12px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.lmt-radio-group label:hover,
+.lmt-radio-row:hover { border-color: var(--border-mid); background: var(--s3); }
+
+/* ── Topbar ────────────────────────────────────────────────────── */
+.lmt-topbar { padding: 20px 30px; border-bottom-color: var(--border); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.25.0 — DENSITY PASS
+   Three things reported on the 3.24.0 build: the image page left a lot
+   of empty space, the metadata rows grew too tall once captions and
+   descriptions were added, and the settings sections stacked flush
+   against each other. Spacing and sizing only.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Image page: preview ───────────────────────────────────────── */
+.lmt-att-layout {
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 22px;
+}
+
+/* The canvas used to grow to the column. Now it wraps the image and
+   stops, so a portrait shot doesn't leave half a screen of chequerboard. */
+.lmt-att-canvas {
+  min-height: 0;
+  padding: 16px;
+}
+
+.lmt-att-canvas img {
+  max-height: 340px;
+  width: auto;
+  object-fit: contain;
+}
+
+.lmt-att-facts { grid-template-columns: 1fr 1fr; }
+.lmt-att-fact { padding: 11px 16px; }
+
+/* ── Image page: metadata card ─────────────────────────────────── */
+/* The fields sit directly inside .lmt-section with no body wrapper, so
+   they need their own inset rather than running to the card edge. */
+.lmt-att-right .lmt-att-field { padding: 0 18px; }
+.lmt-att-right .lmt-att-field:first-of-type { margin-top: 16px; }
+.lmt-att-right .lmt-att-field + .lmt-att-field { margin-top: 18px; }
+
+.lmt-att-label {
+  margin-bottom: 7px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  font-weight: 700;
+  color: var(--text);
+}
+
+.lmt-att-label span { color: inherit; }
+
+.lmt-att-input {
+  background: var(--s1);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.lmt-light .lmt-att-input { background: #fff; }
+
+textarea.lmt-att-input { min-height: 62px; }
+#lmt-att-description { min-height: 92px; }
+
+.lmt-att-right .lmt-att-save-row {
+  margin: 18px 0 0;
+  padding: 14px 18px 18px;
+}
+
+/* Open elsewhere is one row of links; it does not need a full section. */
+.lmt-att-left .lmt-att-actions { padding: 0 18px 18px; }
+
+/* ── Alt text, caption and title rows ──────────────────────────── */
+.lmt-image-grid-wrap.lmt-list .lmt-img-card {
+  padding: 9px;
+  gap: 12px;
+}
+
+.lmt-image-grid-wrap.lmt-list .lmt-img-thumb-wrap {
+  width: clamp(96px, calc(var(--lmt-card-min, 200px) * 0.46), 130px);
+  min-width: 96px;
+  max-width: 130px;
+}
+
+.lmt-image-grid-wrap.lmt-list .lmt-img-body {
+  padding: 4px 4px 4px 0;
+  gap: 8px;
+}
+
+.lmt-image-grid-wrap.lmt-list .lmt-alt-input {
+  min-height: 44px;
+  padding: 8px 11px;
+}
+
+/* The caption and description disclosure sat on its own line with the
+   same margins as a field. It is a secondary control, so it gets less. */
+.lmt-image-grid-wrap.lmt-list .lmt-meta-toggle { margin-top: 2px; }
+.lmt-image-grid-wrap.lmt-list .lmt-meta-field + .lmt-meta-field { margin-top: 8px; }
+.lmt-image-grid-wrap.lmt-list .lmt-card-actions { margin-top: 0; }
+
+/* ── Settings: sections need air between them ──────────────────── */
+.lmt-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.lmt-settings-form .lmt-section { margin: 0; }
+.lmt-settings-actions { margin: 0; }
+
+/* Belt and braces for sections that sit outside the form. */
+.lmt-panel-inner > .lmt-section + .lmt-section { margin-top: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.26.0 — FULL-WIDTH BODY TEXT
+   Several blocks carried a reading-width limit (64–78ch). On a wide
+   admin screen that reads as an accidental line break partway across
+   the box rather than as a measure, so the limits come off and text
+   runs to the container edge like everything else on the page.
+
+   Every capped block in the plugin is listed here — settings prose,
+   checkbox notes, tool page ledes, the All tasks lede — so there is
+   one place to reinstate a measure if it is ever wanted back.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-set-prose,
+.lmt-set-check .lmt-set-note,
+.lmt-page-lede,
+.lmt-home-lede {
+  max-width: none;
+}
+
+/* Settings labels match the sentence-case headings from 3.24.0. */
+.lmt-set-label {
+  font-size: calc(13px * var(--lmt-fs, 1));
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.27.0 — Top-section rework
+   Three changes, all presentation-only:
+     1. Resize setup: width chips + one options strip + a run bar.
+     2. Alt text / Titles: stat cards become clickable filter tiles.
+     3. AI banner collapses to a status strip once Bedrock is connected.
+   Every id, name, nonce and AJAX action is unchanged.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Resize setup block ───────────────────────────────────────── */
+.lmt-resize-setup { margin-top: 0; }
+
+.lmt-section-note {
+  margin-left: auto;
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  color: var(--text-3);
+}
+
+.lmt-size-body { padding-bottom: 12px; }
+
+/* Widths as a single wrapping row of chips instead of six stacked rows. */
+.lmt-radio-group.lmt-size-chips {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.lmt-radio-group.lmt-size-chips > label {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  min-width: 92px;
+  padding: 9px 13px;
+  border: 1px solid var(--border-mid);
+  background: var(--s1);
+}
+
+.lmt-radio-group.lmt-size-chips > label:has(input:checked) {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.lmt-radio-group.lmt-size-chips > label span { min-width: 0; }
+.lmt-radio-group.lmt-size-chips input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+.lmt-radio-group.lmt-size-chips > label { position: relative; }
+
+/* Keyboard focus has to stay visible now the radio itself is hidden. */
+.lmt-radio-group.lmt-size-chips > label:has(input:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.lmt-radio-group.lmt-size-chips .lmt-custom-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.lmt-radio-group.lmt-size-chips .lmt-custom-input { margin-left: 0; width: 74px; }
+
+/* Saved widths sit in the same row as the presets. */
+.lmt-size-chips .lmt-saved-sizes {
+  display: contents;
+}
+.lmt-size-chips .lmt-saved-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px dashed var(--border-mid);
+  border-radius: var(--radius-sm);
+  background: var(--s1);
+}
+.lmt-size-chips .lmt-saved-row:has(input:checked) {
+  border-style: solid;
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+  background: var(--blue-sub);
+}
+.lmt-size-chips .lmt-saved-row input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+.lmt-size-chips .lmt-saved-row > span:not(.lmt-saved-handle) {
+  font-size: calc(13.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+  color: var(--text);
+}
+.lmt-size-chips .lmt-saved-del { margin-left: 2px; }
+
+.lmt-size-chips .lmt-saved-add {
+  margin-top: 0;
+  gap: 6px;
+  padding: 5px 6px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.lmt-size-chips .lmt-saved-add .lmt-text-input { flex: 0 0 130px; padding: 5px 8px; }
+.lmt-size-chips .lmt-saved-add .lmt-saved-px  { flex: 0 0 56px; }
+
+/* Options strip — four controls on one line. */
+.lmt-optbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--s2);
+}
+.lmt-optbar-field { min-width: 150px; }
+.lmt-optbar-field .lmt-label { margin-bottom: 5px; }
+.lmt-optbar-field .lmt-quality-row { margin: 0; }
+.lmt-optbar .lmt-toggle-row.lmt-optbar-toggle { margin: 0 0 7px; }
+
+/* Run bar — the summary and the button that acts on it, together. */
+.lmt-runbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+.lmt-run-summary {
+  flex: 1;
+  min-width: 260px;
+  margin: 0;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.lmt-run-summary-warn { color: var(--amber); }
+
+/* ── 2. Filter tiles (Alt text & Titles) ─────────────────────────── */
+.lmt-filter-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--s1);
+  overflow: hidden;
+}
+
+.lmt-tile {
+  flex: 1 1 0;
+  min-width: 140px;
+  padding: 13px 16px 12px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+  transition: background .12s;
+}
+.lmt-tile:last-child { border-right: 0; }
+.lmt-tile:hover { background: var(--s3); }
+.lmt-tile:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+
+.lmt-tile b {
+  display: block;
+  font-size: calc(24px * var(--lmt-fs, 1));
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.lmt-tile span {
+  display: block;
+  margin-top: 2px;
+  font-size: calc(13px * var(--lmt-fs, 1));
+  color: var(--text-2);
+}
+.lmt-tile small {
+  display: block;
+  margin-top: 1px;
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  color: var(--text-3);
+}
+.lmt-tile-warn b { color: var(--red); }
+.lmt-tile-ok   b { color: var(--green); }
+
+.lmt-tile[aria-pressed="true"] { background: var(--blue-sub); }
+.lmt-tile[aria-pressed="true"] span { color: var(--blue); font-weight: 600; }
+.lmt-tile[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: var(--blue);
+}
+
+.lmt-tile-bar {
+  display: block;
+  height: 3px;
+  margin-top: 9px;
+  border-radius: 2px;
+  background: var(--s4);
+  overflow: hidden;
+}
+.lmt-tile-bar-fill { display: block; height: 100%; transition: width .35s ease; }
+.lmt-bar-red   { background: var(--red); }
+.lmt-bar-green { background: var(--green); }
+
+/* Active-filter line under the tiles. */
+.lmt-filter-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.lmt-filter-line:empty { display: none; }
+.lmt-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 13px;
+  border: 1px solid var(--blue-border);
+  border-radius: 999px;
+  background: var(--blue-sub);
+  color: var(--blue);
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+}
+.lmt-filter-pill[hidden] { display: none; }
+.lmt-filter-pill-x {
+  width: 19px; height: 19px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: var(--blue-border);
+  color: var(--blue);
+  font-size: calc(14px * var(--lmt-fs, 1));
+  line-height: 1;
+  cursor: pointer;
+}
+.lmt-filter-pill-x:hover { background: var(--blue); color: #fff; }
+.lmt-filter-hint {
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  color: var(--text-3);
+}
+
+.lmt-wrap.lmt-square .lmt-filter-pill,
+.lmt-wrap.lmt-square .lmt-filter-pill-x { border-radius: 0; }
+
+/* ── 3. AI banner, connected state ───────────────────────────────── */
+/* Connected is the normal state and needs a line, not a block. If the
+   endpoint is missing the banner keeps its full amber treatment. */
+.lmt-ai-banner.lmt-ai-banner-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px 6px 12px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+}
+.lmt-ai-banner.lmt-ai-banner-ready::before { display: none; }
+.lmt-ai-banner-ready .lmt-ai-banner-icon {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  flex: none;
+}
+.lmt-ai-banner-ready .lmt-ai-banner-icon svg { width: 12px; height: 12px; }
+.lmt-ai-banner-ready .lmt-ai-banner-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lmt-ai-banner-ready .lmt-ai-banner-text strong {
+  font-size: calc(12.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+}
+.lmt-ai-banner-ready .lmt-ai-banner-text span { font-size: calc(12.5px * var(--lmt-fs, 1)); }
+
+.lmt-wrap.lmt-square .lmt-ai-banner.lmt-ai-banner-ready { border-radius: 0; }
+
+@media (max-width: 782px) {
+  .lmt-tile { min-width: 50%; border-bottom: 1px solid var(--border); }
+  .lmt-runbar .lmt-run-summary { min-width: 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.27.1 — Appearance controls in Settings + image page polish
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Colour / Corners option pairs. Two tiles should not stretch the full
+   width of the settings card the way the four text-size tiles do. */
+.lmt-fs-opts.lmt-opts-pair {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 240px));
+  justify-content: start;
+}
+
+/* ── Image page: preview canvas ──────────────────────────────────── */
+/* The image was capped at 460px inside a canvas twice that wide, and on a
+   light background a white-ish screenshot had no visible edge. */
+.lmt-att-canvas {
+  min-height: 340px;
+  padding: 22px;
+  background-color: var(--s3);
+}
+.lmt-att-canvas img {
+  width: auto;
+  max-width: 100%;
+  max-height: min(64vh, 660px);
+  border: 1px solid var(--border-mid);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.10);
+}
+.lmt-light .lmt-att-canvas { background-color: #e7ebf1; }
+
+/* ── Image page: metadata card ───────────────────────────────────── */
+/* More air between the card head and the first label, and the last field
+   no longer sits hard against the save row. */
+.lmt-att-right .lmt-att-field:first-of-type { margin-top: 22px; }
+.lmt-att-right .lmt-att-field:last-of-type  { padding-bottom: 4px; }
+.lmt-att-right .lmt-att-save-row { margin-top: 20px; }
+
+/* ── Image page: Open elsewhere ──────────────────────────────────── */
+/* The buttons sat flush against the card head and its left edge. */
+.lmt-att-left .lmt-att-actions { padding: 15px 18px 18px; }
