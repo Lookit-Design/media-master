@@ -4,7 +4,7 @@ Tags: media, images, alt text, compress, resize
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.39.3
+Stable tag: 3.42.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -39,261 +39,46 @@ The plugin also bundles a local copy of the JSZip library (MIT licensed) for bui
 
 == Changelog ==
 
+= 3.42.5 =
+* Fixed: a Plugin Check warning. The Changelog section had grown past WordPress.org's 5,000-character limit and was being truncated. The recent releases stay here; the full history moved to changelog.txt.
+
+= 3.42.4 =
+* Fixed: the new logo did not appear after updating. The logo was the one asset served without a version query, so browsers kept the old artwork even though the file on disk had changed. It now ships under a new filename with a version query, like every other asset.
+
+= 3.42.3 =
+* Fixed: soft thumbnails in the card grids. Every grid asked WordPress for the 300px size, chosen back when cards rendered at 200px; with the larger cards that file was being scaled up. All three grids now pull the 768px size, through one shared helper, with a fallback chain for images that never had one generated.
+* Changed: new Lookit mark as the plugin logo, running edge to edge in a round frame.
+
+= 3.42.2 =
+* Fixed: the card rows themselves, rather than only the slider. The alt textarea can now shrink, so Save cannot ride over it, and Generate / Edit details stack rather than overlapping when they will not fit side by side. Narrow cards degrade instead of breaking.
+* Changed: the size slider floor is now the seven-across size, and the top end goes a step further for anyone who wants larger thumbnails.
+* Changed: **AI writes** starts with Alt ticked only. Caption and Description are opt-in, so a bulk run is one platform call per image unless you ask for more.
+* Changed: **AI Generate (Selected)** sits between Use Title as Alt and Save, and the toolbar's search box gives up width first so all three buttons stay on one line.
+
+= 3.42.1 =
+* Fixed: the big counts on the All tasks screen rendered near-black on the dark theme. The stat tiles became buttons in 3.36.0, and a button does not inherit text colour from its container, so the browser's own colour was winning.
+* Changed: the card size slider now stops at the 7-across size instead of going smaller. Below that the Generate and Edit details buttons overlapped. A saved size under the new floor is lifted to it.
+
+= 3.42.0 =
+* Added: **Caption** gets its own Extra context box, matching Description. Each field has its own box and reads only its own, so a caption credit and a longer description note can differ.
+* Caption's instruction is length-aware: the caption stays inside its one-sentence limit, and where everything will not fit the supplied facts are kept and the visual description is trimmed.
+* Both boxes still do nothing when empty, are never saved to the attachment, and are unavailable on the bulk screens.
+
+= 3.41.1 =
+* Fixed: Extra context that reads as an attribution ("Logo by Ricky") was being dropped from the generated description. The instruction sent with it asked the model not to restate context as a credit line, which it took literally. Every fact you type is now required to appear in the description, credits included.
+* The status line under the buttons now says when a generation used your extra context, so a plain-looking result is easy to tell apart from context that never arrived.
+
+= 3.41.0 =
+* Added: An **Extra context** box inside the Description field on the single attachment page. Type anything the AI cannot see in the image — photographer, event, location, product name — and Description's Generate treats it as fact and works it into the copy.
+* It sits under the Description box as part of the same field, so it is clear the two belong together. Description only, on this screen only. Bulk screens are unchanged.
+* Leave it empty and Generate behaves exactly as it did before. The box is never saved to the attachment; it applies to the generation you are about to run.
+
+= 3.40.0 =
+* Added: AI Generate (Selected) on the Alt text & captions screen now writes the caption and description as well as the alt text.
+* Added: An "AI writes" field picker next to Overwrite existing, so a run can be limited to just the fields you want.
+* Changed: Fields that already have content are skipped individually rather than skipping the whole image, so a second run fills only the gaps.
+
 = 3.39.3 =
 * Changed: Internal rework of how the image grids fetch and display usage counts. No change to what you see.
-* Security: Usage batches are capped and permission-filtered, and resized image writes are validated against their requested box.
 
-= 3.39.2 =
-* Changed: Internal rework of how image usage counts are looked up. No change to what you see.
-
-= 3.39.1 =
-* Changed: Internal code quality pass following a Plugin Check run. No change to how anything behaves.
-
-= 3.39.0 =
-* Fixed: Large media libraries loaded slowly on the Alt text, Titles and Resize screens, even with 30 per page selected. Several counts were reading the whole library on every visit rather than just the page being shown.
-* Fixed: The Titles screen recalculated auto/custom counts across every image on each load. It now uses a single query with a short cache.
-* Fixed: Filtering Titles by Auto or Custom no longer scans the entire library before paging.
-* Changed: The "Used in" count now appears a moment after the grid, instead of holding the whole page back while it is worked out.
-* Changed: Grid thumbnails use a smaller source image, cutting the data each page pulls down.
-
-= 3.38.0 =
-* Changed: One accent colour across All tasks. The amber highlight on jobs with work waiting, and the red on the missing alt text counter, are both gone; every card and counter now uses the same blue. The numbers carry the urgency.
-
-= 3.37.0 =
-* Changed: The job cards on All tasks are laid out three to a row, so the descriptions read at a comfortable width instead of stretching across the screen.
-* Changed: The counters moved above the job cards, where they act as a summary of the screen.
-
-= 3.36.0 =
-* Added: "Add missing captions" and "Add missing descriptions" jobs on the All tasks screen. Each one opens Alt text & captions with that filter already applied.
-* Added: The counters on All tasks are now buttons. Clicking one opens the tool showing only that slice, the same way the counters on Alt text & captions already work.
-* Added: Missing caption and Missing description counters on All tasks.
-* Added: Tasks screens can be linked to directly with a filter, e.g. ?tab=alt&filter=missing_caption.
-* Changed: The standalone "Have alt text" counter is gone. That number now sits under "Missing alt text", matching how the caption and description counts read.
-
-= 3.35.0 =
-* Changed: Removed the "Titles seed alt text" line under the Titles counters. The page description above it already covers the same ground.
-
-= 3.34.0 =
-* Changed: The AI status banner on Alt text & captions and on Titles is hidden once the endpoint is connected, since it only repeated what the working Generate buttons already show. It still appears on those screens when no endpoint is set, because that is when it tells you something you need. The banner on Settings is unaffected.
-
-= 3.33.0 =
-* Fixed: On Resize & compress the Size panel sat flush against the search row below it, while every other pair of blocks on the screen had a gap. The upload and library sub-views now space their contents the same way the rest of the plugin does.
-
-= 3.32.0 =
-* Changed: Size presets now follow the house sizing table. Seven tiers, each retina size sitting directly above its display size: Hero (2560x1920 / 1920x1440), Full width (2400x1800 / 1200x900), Standard (1600x1200 / 800x600) and Medium (600x450).
-* Fixed: Tier names were a step out. 2400 was labelled Hero when it is the retina of full content width, and 1200 was labelled Standard when it is full width at display size. The pixel sizes are unchanged; the names now match what they are for.
-* Added: 1920 and 1600 presets, which the old list was missing.
-* Changed: The Longest edge list on the upload screen and the Handling list on the import screen use the same tier names, so there is one vocabulary across the plugin.
-
-= 3.31.0 =
-* Changed: Resize & compress has one behaviour instead of three. Every image is fitted inside a width x height box, so the Width / Height / Both switch has been removed along with the single-number Custom chip. A custom box is created in the save row, which takes a name, a width and a height.
-* Changed: One typeface across the whole plugin. The monospace face drew slashed zeros in filenames, dimensions and counts; everything now uses DM Sans with tabular figures, so numbers still line up in columns.
-
-= 3.30.2 =
-* Changed: Zeros in filenames, dimensions and other monospaced text are plain ovals instead of slashed. The monospace face is now Roboto Mono in place of DM Mono; nothing else about the typography changes.
-
-= 3.30.1 =
-* Fixed: Image page - the Title label no longer sits hard against the top of the Metadata card. The spacing rule added in 3.27.1 was never taking effect because it targeted the wrong element.
-* Fixed: Image page - when the metadata fields are read-only there is now proper space below the last field.
-
-= 3.30.0 =
-* Changed: Both mode presets are proper boxes at 4:3 - 2560x1920, 2400x1800, 1200x900, 800x600, 600x450 - instead of every width being paired with one shared height, which produced combinations like 800x1200.
-* Changed: Both mode no longer shows the Custom chip or a separate Max height field. A custom box is made in the save row, which takes a name, a width and a height.
-* Changed: A saved size shows as a box while Both is selected, using its own height if it has one.
-
-= 3.29.0 =
-* Changed: In Both mode the width presets now read as boxes, for example "1200x900", so the width and the height are both visible before running. Changing the max height relabels every preset.
-* Added: Saving a size while Both is selected stores a width and a height together, and the saved size appears as "1200x900". Picking it fills in both numbers.
-* Changed: When an image needs no resizing the card says which dimension was measured, for example "No change - 960px tall already fits 1200px tall", so height mode no longer looks like it is ignoring the setting.
-* Changed: Select all moved out of the action bar and into the view controls, next to the image size slider, on all three tabs. On Alt text and Titles it is now labelled "Select all" rather than "Select all on page".
-* Fixed: Clicking a thumbnail on Alt text & captions or Titles opens that image's page, the same as Resize & compress. Previously only the Edit details link worked.
-
-= 3.28.0 =
-* Added: Resize & compress can now resize by width, by height, or by both. "Resize by" at the top of the setup block switches between them; the width presets stay the same and only the meaning of the number changes. "Both" adds a max height and fits each image inside the box, keeping its proportions.
-* Changed: Portrait images are handled correctly. Previously the number always applied to the longest edge, so a tall image had its height capped when you asked for a width. Width mode now caps the width, height mode caps the height.
-* Changed: The per-image saving estimate shows the finished dimensions, for example "Save ~5.7 KB at 1200x900", and images already inside the target are skipped as before.
-
-= 3.27.1 =
-* Changed: Dark Mode and Square Corners moved off the top of every screen into Settings → Appearance, where they sit with Text size as Colour and Corners. Both are still saved per browser and still apply everywhere, including the image pages.
-* Changed: Image page — the preview is larger, sits on a shaded canvas and carries a hairline edge, so a pale screenshot no longer disappears into the box.
-* Fixed: Image page — the Metadata card has more space between its heading and the Title field, and the Open elsewhere buttons are inset from the edge of their card instead of sitting flush against it.
-
-= 3.27.0 =
-* Changed: Image size now applies to every tool at once. Moving the slider on Resize & compress keeps the same thumbnail size on Alt text & captions and Titles, instead of each tab remembering its own. Existing settings carry over.
-* Changed: Resize & compress — widths are a single row of chips instead of six stacked rows, saved widths sit alongside the presets, and Output, Quality, Only include and Back up originals share one strip. A plain-English line describes exactly what the run will do, with the Resize button next to it.
-* Changed: Alt text & captions — the counts are now the filter. Each tile shows an active state and names the current view in a clearable pill.
-* Fixed: Alt text & captions — the caption and description tiles are labelled "Missing caption" and "Missing description", matching what clicking them actually shows. Previously they were labelled "Have Captions" and "Have Descriptions" but filtered to the images missing them.
-* Changed: Titles uses the same filter tiles as Alt text. "Still a filename" replaces the "Select auto titles" button and covers every page, not only the one on screen.
-* Changed: The AI status banner collapses to a single line once AWS Bedrock is connected, and keeps its full treatment when no endpoint is set.
-
-= 3.26.0 =
-* Fixed: Explanatory text no longer wraps to a second line partway across a wide box. The reading-width limits on settings prose, checkbox notes and page ledes have been lifted so text runs to the edge of its container like the rest of the plugin.
-* Fixed: The "Remember the page I was last on" checkbox now uses the same markup as the other settings checkboxes, so the box, label and note line up instead of stacking.
-* Changed: The Text size label is sentence case, matching the rest of the settings screen.
-
-= 3.25.0 =
-* Changed: Image page — the preview no longer stretches to fill the column, so short pages stop scrolling. Metadata fields are now inset in their card, spaced apart, and the description box opens at a sensible height.
-* Changed: Alt text, caption and title rows are shorter. Thumbnails are smaller, the text boxes fit their content, and the extra caption and description controls no longer push each row taller than the screen.
-* Changed: Settings sections are spaced apart instead of stacking flush, so Connection, AI prompts, Admin menu and Appearance read as separate blocks.
-* Fixed: A duplicate list-card padding rule from 3.24.0 that was being overridden anyway.
-
-= 3.24.0 =
-* Changed: Every tool screen now opens with a page head — a breadcrumb back to All tasks, a plain-language title, and one line explaining what the screen does.
-* Changed: Rail labels renamed to describe the job rather than the module: Resize & compress, Alt text & captions, Titles. Tab identifiers, panel IDs and menu slugs are unchanged.
-* Changed: Section headers are sentence case and no longer uppercase micro-type, so they read as headings rather than field labels.
-* Changed: Type scale lifted across the plugin. Nothing renders below 11px any more, and the text-size setting still scales everything on top of the new baseline.
-* Changed: Light mode palette, card radius and spacing brought in line with the approved design: softer borders, a light page background and a single-pixel card shadow.
-
-= 3.23.0 =
-* Added: All tasks — a landing screen that names each job in plain language and shows how much work is waiting. It is the tab the plugin opens on for a new install; anyone who already has a preferred tab keeps it.
-* Added: Text size in Settings > Appearance. Four steps, applied to every Media Master screen straight away. Saved in the browser like Dark Mode, so it changes nothing for anyone else on the site.
-* Added: Page memory. Each tool reopens on the page it was left on, and a Back link from an image page returns to that exact page with the card you came from scrolled into view. Switchable off in Settings > Appearance.
-* Added: Edit details on the Image Resizer cards, and image thumbnails there are now links.
-* Changed: Edit details in the Metadata and Title managers opens the Media Master image page rather than the WordPress attachment editor.
-
-= 3.22.0 =
-* New: an optional setting folds the WordPress Media menu into Media Master, so the plugin becomes the single entry point for media. Off by default.
-* The move keeps whatever other plugins have added to the Media menu rather than replacing it with a fixed list, and Media Master takes Media's place in the sidebar instead of sitting at the bottom.
-* Nothing is deleted and every screen keeps its own URL, so turning the setting off or deactivating the plugin restores the menu exactly.
-
-= 3.21.1 =
-* Fixed: Generate did nothing for Description in the Media Master box on the attachment edit screen, while Alt text and Caption filled correctly. WordPress gives that editor the ID attachment_content even though it posts as content, so the box was looking for an element that was not there.
-* Changed: the box now resolves each field against a list of candidates and reports plainly if one cannot be found, rather than failing silently.
-
-= 3.21.0 =
-* New: Settings is now a panel inside Media Master, in the plugin's own design, instead of a separate grey WordPress options screen. The old settings URL redirects to it, so existing links and bookmarks still work.
-* New: an "Edit Details" button sits beside "Generate" on every image, opening that image in the WordPress media editor.
-* New: a Media Master box on the attachment edit screen generates alt text, captions and descriptions directly into the fields WordPress already shows there. It deliberately does not duplicate those fields, and nothing is saved until you press Update.
-* New: the main screen accepts a tab in the address, for example &tab=settings, so any panel can be linked to directly.
-* Changed: the rail flags Settings when no AI endpoint has been set yet.
-* Changed: the per-image AI button is now labelled "Generate" so it and "Edit Details" fit side by side.
-* Changed: Test Connection moved out of an inline script into the enqueued bundle.
-
-= 3.20.2 =
-* Fixed: two prepared statements passed a LIKE wildcard inside the query string instead of as a replacement parameter, which Plugin Check reports as an error.
-* Changed: Tested up to is now 7.1.
-
-= 3.20.1 =
-* Fixed: in list view a portrait image stretched its row to more than twice the height of a landscape one. Every list row now uses a fixed 4:3 thumbnail, so rows are a uniform height whatever the source image ratio.
-* Fixed: the caption and description flags overflowed the edge of a card in grid view, and the expand caret could be squeezed out of sight entirely.
-* Changed: in list view the caption and description fields open as two columns, so expanding a row costs one line of height instead of two.
-* Changed: the selection checkbox and the alt-text status badge now sit on opposite corners of the list thumbnail instead of crowding the same one.
-* Changed: status badges darken whatever is behind them, so they stay readable over a photo of a similar colour.
-
-= 3.20.0 =
-* New: Caption and Description can now be edited alongside alt text, both in the Metadata Manager grid and on the new attachment page.
-* New: every image has its own page in the plugin at admin.php?page=lookit-media-master&view=attachment&id=ID, with a preview, file details, all four metadata fields, per-field AI generation and Previous/Next navigation.
-* New: AI generation for captions and descriptions, with their own editable prompts in Settings.
-* New: the tool tabs are now a left navigation rail, grouped into Library, Transfer and Plugin, with a collapse toggle that is remembered per browser. Settings is reachable from the rail.
-* New: the rail shows a count of everything missing alt text, a caption or a description.
-* New: filter the library by missing caption, missing description, missing anything, or complete.
-* Changed: the Alt Text Manager tab is now called the Metadata Manager. Saving writes alt text, caption and description together.
-* Changed: library statistics are now a single aggregate query with a short-lived cache, instead of three full queries over every attachment.
-* Fixed: the version badge in the header was hard-coded and no longer matched the plugin version.
-
-= 3.19.3 =
-* The Date range year list is now built with WP_Query instead of a direct database query.
-
-= 3.19.2 =
-* The plugin now reopens on whichever tab you last used instead of always landing on Image Resizer.
-
-= 3.19.1 =
-* Removed PDF compression from the Import tab. PDFs upload unchanged.
-
-= 3.19.0 =
-* New Import tab: upload images, video, audio, PDFs, Office documents and archives into the Media Library from one screen, one file at a time so a large batch cannot time out.
-* Images are resized and re-encoded in the browser before upload, with longest-edge, format and quality controls. A re-encode that would make a file larger is discarded.
-* The Image Resizer's "Upload Images" button now opens the Import tab.
-
-= 3.18.0 =
-* Date range now lists every year that actually has media of the selected type, read from the library rather than assumed, and refreshes when the media type changes.
-* Export filenames now identify the site, media type and date range, for example media-export-hepfree-documents-2017.zip. The metadata CSV matches the archive name, and part numbers only appear when the archive is split.
-
-= 3.17.2 =
-* Plugin Check pass on the Export tab: nonce verification moved into the request-parsing helper, folder deletion now goes through WP_Filesystem, and the remaining discouraged-function notice is annotated.
-
-= 3.17.1 =
-* Fixed: download links on the Export tab returned "The link you followed has expired". The nonce URL was HTML-escaped twice, so the security token arrived under the wrong parameter name.
-
-= 3.17.0 =
-* New Export tab: build a ZIP of the Media Library filtered by media type, date range, attachment status or filename.
-* Folder structure options for the archive, including "Group by uploaded-to page" — each file lands in a folder named after the page or post it was uploaded to, with unattached files in _unattached/.
-* Optional metadata CSV in every export, listing attachment ID, alt text, caption, dimensions and the uploaded-to page ID, title, type and URL.
-* Archives can be split at 500 MB, 1 GB or 2 GB for large libraries.
-* Built archives are listed on the Export tab and deleted automatically after 7 days.
-
-= 3.16.2 =
-* Removed the example URL placeholder from the Lookit AI Endpoint field.
-
-= 3.16.1 =
-* Enlarged the "Used in" usage popup and bumped its text sizes for easier reading.
-
-= 3.16.0 =
-* Added a 2560px "Max" preset to the Image Resizer.
-* Saved custom sizes: name and save your own resize presets (e.g. "Blog hero" · 1600px). Saved sizes appear as selectable options, can be reordered by dragging the handle, and removed individually. Stored per browser.
-
-= 3.15.0 =
-* Image Resizer now offers WebP conversion. In the resize Options, set "Output" to "Convert to WebP (adds a new copy)". Each selected image is resized (never upscaled) and saved as a brand-new .webp attachment in the media library, with alt text copied over. Originals are left untouched, so existing URLs never break. Leave "Output" on "Keep original format" for the usual in-place resize.
-
-= 3.14.1 =
-* Resolved two Plugin Check warnings on the usage-list handler (input sanitisation) by matching the codebase's `intval()` pattern. Plugin Check is clean again.
-
-= 3.14.0 =
-* Added a "Square Corners" toggle in the top bar (next to Dark Mode) for people who prefer sharp edges over the default rounded corners. The preference is remembered per browser. Circular elements like status dots stay round.
-
-= 3.13.1 =
-* Fixed the "Used in" usage popup rendering transparent/unreadable — it now mounts inside the plugin theme so it displays correctly in both light and dark mode.
-* Renamed the Alt Text Manager suggestion label from "Claude suggests" to "Lookit suggests".
-
-= 3.13.0 =
-* Clickable "Used in N" chip: opens a popup listing every post and page that embeds the image, each with View and Edit links.
-* Clickable stat cards: click "Have Alt Text" / "Missing Alt Text" (Alt Manager) or "Custom Titles" / "Auto Titles" (Title Manager) to instantly filter the grid to just those images. New "Have alt only" and "Custom titles only" filter options added to match.
-* Resize savings estimate redesigned: now shows the projected saving at the chosen size (e.g. "↓ Save ~300 KB at 1200px") in a clearer, higher-contrast style, instead of a raw before/after byte readout.
-
-= 3.12.0 =
-* "Used in N posts" indicator on every image: shows how many posts/pages embed each image (inserted images and featured images), so you can prioritise images that actually appear on the site. Images not used anywhere are marked "Unused".
-* Cross-tab "needs attention" chips: every card now shows at-a-glance warnings for missing alt text and auto (filename) titles, plus the usage count — the whole tool reads as one worklist regardless of which tab you're on.
-* Resize savings preview: each Image Resizer card shows the projected result (e.g. "2560px → 1200px · ~498 KB → ~110 KB"), and a running total next to "Resize Selected" estimates how much the current selection will save. Estimates are approximate.
-* One-click filter chips: "Select missing alt (N)" on the Alt Text Manager and "Select auto titles (N)" on the Title Manager instantly select all matching loaded images and jump to the first, so you can backfill with one more click.
-
-= 3.11.1 =
-* Title Manager: "AI Generate (Selected)" now regenerates titles for every selected image, including images that already have a custom title (explicit selection is treated as intent to rewrite). The "Overwrite custom titles" checkbox still governs the "Auto-Title from Filename" action.
-* Sharper thumbnails: manager cards now use the 768px image size instead of the 150px thumbnail, so previews no longer look soft when scaled up in the grid.
-* Image Resizer now loads the media library automatically on page load — no need to click "Load Images" after every refresh. The button still works as a manual reload.
-* The "This overwrites files on your server" banner on the Image Resizer can now be dismissed (it stays hidden across refreshes). The same warning is shown permanently on the Settings page as a reminder.
-
-= 3.11.0 =
-* AI alt text and titles now run through the Lookit AI platform (self-hosted n8n → AWS Bedrock, Nova Lite vision) instead of OpenRouter. The plugin is now a thin client: no AI provider key is stored in WordPress. Settings replace the OpenRouter API key and model picker with a Lookit AI endpoint URL and an optional endpoint token. Model choice and metering live on the platform. Option keys, class names, nonces, AJAX action names, and DOM IDs are unchanged; existing installs keep their saved prompts.
-* Settings: added a "Test Connection" button that sends a small built-in image to the configured endpoint and reports the round-trip time and reply — no media library needed.
-* Alt Text Manager and Title Manager: added a "Save (Selected)" button that saves the current field for every selected image in one action, so multi-row edits no longer need a per-row Save click.
-
-= 3.10.3 =
-* Extended the Sort (Newest / Oldest / Filename A-Z / Filename Z-A) and Type (All / JPG / PNG / WebP) controls to the Alt Text Manager and Title Manager tabs, matching the Image Resizer. The alt and title batch endpoints now accept sort/type parameters.
-
-= 3.10.2 =
-* Image Resizer: added Sort (Newest, Oldest, Filename A-Z, Filename Z-A) and Type (All / JPG / PNG / WebP) controls to the media-library view. Filename sorting uses the stored file path; the type filter narrows the grid to a single format. Reuses the existing get-images endpoint with new sort/type parameters.
-
-= 3.10.1 =
-* Media Library Resize: the "Restore Original" button now appears on any image that still has a backup on disk, so the restore option persists after you leave and return to the plugin (previously it only showed in the session that performed the resize).
-
-= 3.10.0 =
-* Combined the Image Resizer and Media Library Resizer into a single "Image Resizer" tab: the browse-and-resize library grid is the default view, with an "Upload Images" button that swaps in the upload & compress panel (and a "Back to Library" control to return).
-* Added per-tab view controls across the Image Resizer, Alt Text Manager, and Title Manager tabs: a grid/list view toggle, a display-size slider (scales thumbnail/card size), and a "Show N per page" selector (30 / 60 / 100 / All) with a "Load More" button for large libraries. View mode and size preferences persist per tab. The three batch AJAX endpoints now accept a per_page parameter. No option keys, AJAX action names, or nonces changed.
-
-= 3.9.7 =
-* Plugin Check compliance pass: fixed the plugin Version header to a valid version string, added a readme.txt with an External Services disclosure for the OpenRouter API, bundled the JSZip library locally instead of loading it from a CDN, replaced unlink() with wp_delete_file(), added wp_unslash()/sanitization to all form and AJAX input, and annotated intentional attachment meta_query filtering. No option keys, AJAX action names, or behaviour changed.
-
-= 3.9.6 =
-* Image Resizer: added "Upload to Media Library" button.
-
-= 3.9.3 =
-* New Title Manager tab: edit titles manually or AI-generate from the image, same flow as the Alt Manager. Detects auto titles (post_title == filename) so default filename-based titles can be found and replaced. Removed the "Bulk Title Fix" button from the Alt Manager.
-
-= 3.9.2 =
-* Refreshed the free vision model list and improved the reasoning-model response parser (handles a `reasoning` field and stray think blocks).
-
-= 3.9.1 =
-* Added Llama 4 models and fixed empty-response parsing.
-
-= 3.9.0 =
-* Fixed free model IDs and routing.
+Older entries are in changelog.txt, alongside the plugin file. WordPress.org caps this section at 5,000 characters, so only the recent releases are listed here.

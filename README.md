@@ -47,9 +47,10 @@ AI features only run when an endpoint is configured and you trigger a generate a
 * **Image Resizer & Compressor** — resize and compress images in the browser before they enter the Media Library.
 * **Media Library Resizer** — fit images inside width and height boxes without upscaling, with an optional one-time backup of each original.
 * **All Tasks** — start from a single work overview with links and outstanding metadata counts.
-* **Metadata Manager** — find missing alt text, captions, or descriptions, then edit or generate each field.
+* **Metadata Manager** — find missing alt text, captions, or descriptions, then edit fields or generate selected fields in bulk.
 * **Title Manager** — bulk-edit attachment titles, title from filenames, or generate titles from the image.
 * **Attachment pages** — preview individual files, edit all metadata fields, and navigate between accessible images.
+* **Generation context** — supply temporary factual context for caption or description generation without saving it to the attachment.
 * **Attachment metabox** — generate metadata into the native WordPress fields without saving until Update is pressed.
 * **Import** — upload supported media one file per request, with optional client-side image optimization.
 * **Export** — build filtered ZIP archives in batches and download them through authenticated handlers.
@@ -68,6 +69,8 @@ AI features only run when an endpoint is configured and you trigger a generate a
 When you run an AI generate action, the plugin sends the selected image, your prompt, and the site URL and name to the Lookit AI endpoint you configured. No data is sent until you trigger that action.
 
 See Lookit AI [terms](https://lookitai.com/terms) and [privacy](https://lookitai.com/privacy).
+
+The deployable n8n workflow and production setup instructions are in [`n8n/`](n8n/).
 
 ## Development
 
@@ -88,6 +91,7 @@ The integration tests run against a real WordPress test install and a MySQL data
 bin/install-wp-tests.sh wordpress_test root '' 127.0.0.1 latest
 
 composer test
+node --test 'n8n/tests/*.test.mjs'
 ```
 
 ### Coding Standards

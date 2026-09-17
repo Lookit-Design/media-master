@@ -111,8 +111,11 @@
 
 .lmt-logo-wrap {
   width: 44px; height: 44px;
-  border-radius: 10px;
-  background: #fff;
+  /* v3.42.3 — the mark is a filled circle with its own background, so the
+     wrapper is a matching circle and the artwork runs edge to edge rather
+     than floating inside a white rounded square. */
+  border-radius: 50%;
+  background: transparent;
   border: 1px solid rgba(255,255,255,0.12);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
@@ -120,7 +123,7 @@
   box-shadow: 0 0 0 3px var(--blue-glow);
 }
 
-.lmt-logo-wrap img { width: 40px; height: 40px; object-fit: contain; }
+.lmt-logo-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .lmt-topbar-title {
   font-size: calc(19px * var(--lmt-fs, 1));
@@ -556,6 +559,14 @@
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-lg);
 }
+
+/* v3.42.2 — the Alt screen's bar carries three bulk buttons plus the field
+   picker, and used to drop the last one onto a second row. The search box
+   and the select give up width first so the buttons stay on one line; they
+   only wrap once there is genuinely nothing left to give. */
+.lmt-action-bar .lmt-search-input { flex: 1 1 130px; min-width: 130px; width: auto; }
+.lmt-action-bar .lmt-select { flex: 0 1 auto; min-width: 0; }
+.lmt-action-bar .lmt-btn { flex: 0 0 auto; }
 
 .lmt-btn {
   display: inline-flex;
@@ -1156,7 +1167,10 @@
 }
 
 .lmt-alt-input {
-  flex: 1;
+  flex: 1 1 auto;
+  /* Without this a flex item refuses to shrink below its content width, which
+     is what pushed Save out over the textarea on narrow cards. */
+  min-width: 0;
   font-size: calc(13px * var(--lmt-fs, 1));
   font-family: 'DM Sans', sans-serif;
   padding: 6px 8px;
@@ -2210,11 +2224,14 @@
 
 .lmt-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
 }
-/* The AI button carried its own top margin from when it stood alone. */
-.lmt-card-actions .lmt-ai-btn { margin-top: 0; flex: 1 1 50%; min-width: 0; }
+/* The AI button carried its own top margin from when it stood alone.
+   v3.42.2 — a real basis rather than 50%, so when both labels will not fit
+   side by side the pair stacks instead of overlapping. */
+.lmt-card-actions .lmt-ai-btn { margin-top: 0; flex: 1 1 108px; min-width: 0; }
 /* Both labels must stay on one line at the narrowest grid card, so the
    padding is tighter here than on a standalone full-width button. */
 .lmt-card-actions .lmt-ai-btn,
@@ -2225,7 +2242,7 @@
 }
 
 .lmt-edit-btn {
-  flex: 1 1 50%;
+  flex: 1 1 108px;
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -2521,6 +2538,10 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
+  /* v3.42.1 — these tiles are <button> elements, and a button does not inherit
+     colour from its container: without this the browser's own button text
+     colour wins and the big count renders near-black on the dark theme. */
+  color: inherit;
   cursor: pointer;
   transition: transform .14s ease, border-color .14s ease;
 }
@@ -2552,6 +2573,10 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1;
+  /* Explicit rather than inherited, so the count follows the theme on both
+     the button tiles and anywhere else this class is reused. */
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .lmt-stat-l {
@@ -2817,6 +2842,47 @@
 
 textarea.lmt-att-input { min-height: 62px; }
 #lmt-att-description { min-height: 92px; }
+
+/* ── Extra context for Description (v3.41.0) ─────────────────────
+   Nested inside the Description field so the two read as one control.
+   Feeds the Description generator only, and is never saved. */
+.lmt-att-ctx {
+  --lmt-ctx: #028673;
+  margin-top: 9px;
+  padding-left: 11px;
+  border-left: 2px solid var(--border-mid);
+}
+.lmt-att-ctx.is-active { border-left-color: var(--lmt-ctx); }
+.lmt-att-ctx-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  font-weight: 700;
+  color: var(--text-2);
+}
+.lmt-att-ctx-label .sub { font-weight: 400; color: var(--text-3); }
+textarea.lmt-att-context { min-height: 46px; font-size: calc(12.5px * var(--lmt-fs, 1)); }
+textarea.lmt-att-context.is-set { border-color: var(--lmt-ctx); box-shadow: inset 0 0 0 1px var(--lmt-ctx); }
+.lmt-att-ctx-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: calc(11.5px * var(--lmt-fs, 1));
+  font-weight: 600;
+  color: var(--lmt-ctx);
+}
+.lmt-att-ctx-state button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text-3);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.lmt-att-ctx-state button:hover { color: var(--lmt-ctx); }
 
 .lmt-att-right .lmt-att-save-row {
   margin: 18px 0 0;
@@ -3304,3 +3370,22 @@ textarea.lmt-att-input { min-height: 62px; }
   opacity: .55;
   font-style: italic;
 }
+
+/* v3.40.0 — field picker for bulk AI Generate on the Alt text screen. */
+.lmt-ai-fields {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--s3);
+  border-radius: 6px;
+}
+
+.lmt-ai-fields-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.lmt-ai-fields .lmt-toggle-row { margin: 0; }
