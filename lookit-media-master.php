@@ -2,7 +2,7 @@
 /**
  * Plugin Name:  Lookit Media Master
  * Description:  A unified media toolkit with image tools, metadata management, media import, protected ZIP export, and optional AI generation.
- * Version:      3.27.1
+ * Version:      3.39.3
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'LMT_VERSION', '3.27.1' );
+define( 'LMT_VERSION', '3.39.3' );
 define( 'LMT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'LMT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -49,21 +49,38 @@ function lmt_user_can_edit_attachment( $id ): bool {
     return $id && 'attachment' === get_post_type( $id ) && current_user_can( 'edit_post', $id );
 }
 
-function lmt_accessible_attachment_ids( $args ) {
-    $args['posts_per_page']   = -1;
-    $args['paged']            = 1;
-    $args['fields']           = 'ids';
-    $args['no_found_rows']    = true;
-    $args['suppress_filters'] = false;
-    return array_values( array_filter( get_posts( $args ), 'lmt_user_can_edit_attachment' ) );
+function lmt_scope_attachment_query_args( $args ) {
+    if ( ! current_user_can( 'edit_others_posts' ) ) {
+        $args['author'] = get_current_user_id();
+    }
+    return $args;
 }
 
-function lmt_paginate_attachment_ids( $ids, $page, $per_page ) {
-    if ( $per_page < 1 ) {
-        return array_values( $ids );
-    }
-    return array_slice( array_values( $ids ), ( $page - 1 ) * $per_page, $per_page );
+function lmt_media_cache_generation( $option_name ) {
+    return max( 1, absint( get_option( $option_name, 1 ) ) );
 }
+
+function lmt_bump_media_cache_generation( $option_name ) {
+    update_option( $option_name, lmt_media_cache_generation( $option_name ) + 1, false );
+}
+
+function lmt_flush_attachment_caches() {
+    lmt_bump_media_cache_generation( 'lmt_title_cache_generation' );
+    lmt_bump_media_cache_generation( 'lmt_metadata_cache_generation' );
+}
+add_action( 'add_attachment', 'lmt_flush_attachment_caches' );
+add_action( 'edit_attachment', 'lmt_flush_attachment_caches' );
+add_action( 'delete_attachment', 'lmt_flush_attachment_caches' );
+
+add_action( 'save_post', function ( $post_id ) {
+    if ( wp_is_post_revision( $post_id ) ) {
+        return;
+    }
+    lmt_bump_media_cache_generation( 'lmt_usage_cache_generation' );
+} );
+add_action( 'deleted_post', function () {
+    lmt_bump_media_cache_generation( 'lmt_usage_cache_generation' );
+} );
 
 function lmt_decode_image_data_uri( $data, $allowed_mimes = null ) {
     if ( null === $allowed_mimes ) {
@@ -88,9 +105,45 @@ function lmt_decode_image_data_uri( $data, $allowed_mimes = null ) {
         return new WP_Error( 'bad_mime', 'Unsupported image type' );
     }
     return array(
-        'raw'  => $raw,
-        'mime' => $info['mime'],
+        'raw'    => $raw,
+        'mime'   => $info['mime'],
+        'width'  => (int) $info[0],
+        'height' => (int) $info[1],
     );
+}
+
+function lmt_fit_dimensions( $width, $height, $max_width, $max_height ) {
+    $width      = (int) $width;
+    $height     = (int) $height;
+    $max_width  = (int) $max_width;
+    $max_height = (int) $max_height;
+    if ( ! $width || ! $height || $max_width < 16 || $max_height < 16 || $max_width > 8000 || $max_height > 8000 ) {
+        return new WP_Error( 'invalid_dimensions', 'Invalid resize dimensions.' );
+    }
+    $scale = min( 1, $max_width / $width, $max_height / $height );
+    return array(
+        'width'  => max( 1, (int) round( $width * $scale ) ),
+        'height' => max( 1, (int) round( $height * $scale ) ),
+    );
+}
+
+function lmt_validate_resized_image( $id, $decoded, $max_width, $max_height ) {
+    $metadata = wp_get_attachment_metadata( $id );
+    if ( empty( $metadata['width'] ) || empty( $metadata['height'] ) ) {
+        $metadata = wp_getimagesize( get_attached_file( $id ) );
+        $metadata = is_array( $metadata ) ? array(
+'width' => $metadata[0],
+'height' => $metadata[1]
+) : array();
+    }
+    $expected = lmt_fit_dimensions( $metadata['width'] ?? 0, $metadata['height'] ?? 0, $max_width, $max_height );
+    if ( is_wp_error( $expected ) ) {
+        return $expected;
+    }
+    if ( $decoded['width'] > $expected['width'] || $decoded['height'] > $expected['height'] ) {
+        return new WP_Error( 'invalid_resize', 'The resized image exceeds its target box.' );
+    }
+    return true;
 }
 
 function lmt_sanitize_checkbox( $value ) {
@@ -101,6 +154,12 @@ function lmt_sanitize_navigation_tab( $tab ) {
     $tab     = sanitize_key( $tab );
     $allowed = array( 'home', 'mlr', 'alt', 'title', 'export', 'import', 'settings' );
     return in_array( $tab, $allowed, true ) ? $tab : 'home';
+}
+
+function lmt_sanitize_deep_filter( $filter ) {
+    $filter  = sanitize_key( $filter );
+    $allowed = array( 'all', 'missing', 'has', 'missing_caption', 'has_caption', 'missing_desc', 'has_desc', 'missing_any', 'complete', 'auto', 'custom', 'large' );
+    return in_array( $filter, $allowed, true ) ? $filter : '';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -626,8 +685,10 @@ add_action( 'wp_ajax_lmt_ir_upload', function () {
 
 add_filter( 'posts_where', 'lmt_meta_posts_where', 10, 2 );
 function lmt_meta_posts_where( $where, $query ) {
-    $mode = $query->get( 'lmt_meta_filter' );
-    if ( ! $mode || ! is_string( $mode ) ) {
+    $mode     = $query->get( 'lmt_meta_filter' );
+    $large    = $query->get( 'lmt_large_images' );
+    $neighbor = $query->get( 'lmt_neighbor' );
+    if ( ( ! $mode || ! is_string( $mode ) ) && ! $large && ! is_array( $neighbor ) ) {
         return $where;
     }
     global $wpdb;
@@ -653,6 +714,33 @@ function lmt_meta_posts_where( $where, $query ) {
             $where .= " AND {$wpdb->posts}.post_excerpt <> '' AND {$wpdb->posts}.post_content <> '' AND NOT ( {$no_alt} )";
             break;
     }
+    if ( $large ) {
+        $metadata = "SELECT 1 FROM {$wpdb->postmeta} lmt_dimensions
+            WHERE lmt_dimensions.post_id = {$wpdb->posts}.ID
+            AND lmt_dimensions.meta_key = '_wp_attachment_metadata'
+            AND (
+                CAST( SUBSTRING_INDEX( SUBSTRING_INDEX( lmt_dimensions.meta_value, 's:5:\"width\";i:', -1 ), ';', 1 ) AS UNSIGNED ) > 1200
+                OR CAST( SUBSTRING_INDEX( SUBSTRING_INDEX( lmt_dimensions.meta_value, 's:6:\"height\";i:', -1 ), ';', 1 ) AS UNSIGNED ) > 1200
+            )";
+        $where   .= " AND EXISTS ( {$metadata} )";
+    }
+    if ( is_array( $neighbor ) && isset( $neighbor['date'], $neighbor['id'], $neighbor['direction'] ) ) {
+        if ( 'older' === $neighbor['direction'] ) {
+            $where .= $wpdb->prepare(
+                " AND ( {$wpdb->posts}.post_date < %s OR ( {$wpdb->posts}.post_date = %s AND {$wpdb->posts}.ID < %d ) )",
+                $neighbor['date'],
+                $neighbor['date'],
+                absint( $neighbor['id'] )
+            );
+        } else {
+            $where .= $wpdb->prepare(
+                " AND ( {$wpdb->posts}.post_date > %s OR ( {$wpdb->posts}.post_date = %s AND {$wpdb->posts}.ID > %d ) )",
+                $neighbor['date'],
+                $neighbor['date'],
+                absint( $neighbor['id'] )
+            );
+        }
+    }
     return $where;
 }
 
@@ -668,7 +756,7 @@ add_action( 'wp_ajax_lmt_alt_get_batch', function () {
 
     $page         = max( 1, intval( $_POST['page'] ?? 1 ) );
     $per_page_raw = sanitize_text_field( wp_unslash( $_POST['per_page'] ?? '30' ) );
-    $per_page     = ( 'all' === $per_page_raw ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
+    $per_page     = ( 'all' === $per_page_raw ) ? 500 : min( 500, max( 1, intval( $per_page_raw ) ) );
     $filter       = sanitize_text_field( wp_unslash( $_POST['filter'] ?? 'all' ) );
     $search       = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
     $sort         = sanitize_text_field( wp_unslash( $_POST['sort'] ?? 'date_desc' ) );
@@ -697,7 +785,6 @@ add_action( 'wp_ajax_lmt_alt_get_batch', function () {
         'post_status'    => 'inherit',
         'posts_per_page' => $per_page,
         'paged'          => $page,
-        'fields'         => 'ids',
         'orderby'        => $orderby,
         'order'          => $order,
     );
@@ -736,14 +823,21 @@ add_action( 'wp_ajax_lmt_alt_get_batch', function () {
         $args['s'] = $search;
     }
 
-    $all_ids = lmt_accessible_attachment_ids( $args );
-    $total   = count( $all_ids );
-    $ids     = lmt_paginate_attachment_ids( $all_ids, $page, $per_page );
+    $args  = lmt_scope_attachment_query_args( $args );
+    $query = new WP_Query( $args );
+    // v3.39.3 — this query no longer asks for 'fields' => 'ids'. With ids only,
+    // WP_Query warms no caches, so every get_post() / get_post_meta() in the
+    // loop below cost its own query. Letting it return full rows lets core warm
+    // post and meta caches in the same pass — roughly four queries per image
+    // saved, and no need to reach for a private core helper to do it.
+    $ids   = array_values( array_filter( wp_list_pluck( $query->posts, 'ID' ), 'lmt_user_can_edit_attachment' ) );
+    $total = $query->found_posts;
 
     $items = array();
     foreach ( $ids as $id ) {
-        $thumb   = wp_get_attachment_image_url( $id, 'medium_large' );
-        $thumb   = $thumb ? $thumb : '';
+        // v3.39.0 — 'medium' (300px) not 'medium_large' (768px); the card
+        // renders these at ~200px wide.
+        $thumb   = (string) wp_get_attachment_image_url( $id, 'medium' );
         $alt     = get_post_meta( $id, '_wp_attachment_image_alt', true );
         $file    = get_attached_file( $id );
         $meta    = wp_get_attachment_metadata( $id );
@@ -757,15 +851,17 @@ add_action( 'wp_ajax_lmt_alt_get_batch', function () {
             'alt'         => $alt,
             'has_alt'     => ( '' !== $alt && false !== $alt ),
             'is_auto'     => lmt_is_auto_title( $id ),
-            'used'        => lmt_attachment_usage_count( $id ),
+            // v3.39.0 — null tells the grid to render now and fetch the usage
+            // count separately via lmt_usage_counts.
+            'used'        => null,
             'title'       => $post ? (string) $post->post_title : '',
             'width'       => $meta['width'] ?? 0,
             'height'      => $meta['height'] ?? 0,
             // v3.20.0 — caption/description are post columns, not meta.
             'caption'     => $caption,
             'description' => $desc,
-            'has_caption' => ( trim( $caption ) !== '' ),
-            'has_desc'    => ( trim( $desc ) !== '' ),
+            'has_caption' => ( '' !== trim( $caption ) ),
+            'has_desc'    => ( '' !== trim( $desc ) ),
             'detail_url'  => admin_url( 'admin.php?page=lookit-media-master&view=attachment&id=' . $id ),
             // v3.21.0 — the WordPress attachment edit screen, where the
             // Media Master metabox sits alongside Yoast, Imagify et al.
@@ -888,25 +984,32 @@ add_action( 'wp_ajax_lmt_alt_stats', function () {
 } );
 
 function lmt_metadata_counts() {
-    $ids    = lmt_accessible_attachment_ids(
-        array(
-            'post_type'      => 'attachment',
-            'post_mime_type' => 'image',
-            'post_status'    => 'inherit',
-        )
-    );
-    $counts = array(
-        'total'       => count( $ids ),
-        'has_alt'     => 0,
-        'has_caption' => 0,
-        'has_desc'    => 0,
-    );
-    foreach ( $ids as $id ) {
-        $post                   = get_post( $id );
-        $counts['has_alt']     += '' !== trim( (string) get_post_meta( $id, '_wp_attachment_image_alt', true ) ) ? 1 : 0;
-        $counts['has_caption'] += $post && '' !== trim( (string) $post->post_excerpt ) ? 1 : 0;
-        $counts['has_desc']    += $post && '' !== trim( (string) $post->post_content ) ? 1 : 0;
+    global $wpdb;
+
+    $scope = 'user_' . get_current_user_id();
+    $key   = 'lmt_meta_stats_' . lmt_media_cache_generation( 'lmt_metadata_cache_generation' ) . '_' . $scope;
+    $row   = wp_cache_get( $key, 'lookit-media-master' );
+    if ( false === $row ) {
+        $sql = "SELECT
+            COUNT(*) AS total,
+            SUM( CASE WHEN COALESCE( m.meta_value, '' ) <> '' THEN 1 ELSE 0 END ) AS has_alt,
+            SUM( CASE WHEN TRIM( p.post_excerpt ) <> '' THEN 1 ELSE 0 END ) AS has_caption,
+            SUM( CASE WHEN TRIM( p.post_content ) <> '' THEN 1 ELSE 0 END ) AS has_desc
+            FROM {$wpdb->posts} p
+            LEFT JOIN {$wpdb->postmeta} m
+                ON m.post_id = p.ID AND m.meta_key = '_wp_attachment_image_alt'
+            WHERE p.post_type = 'attachment'
+                AND p.post_status = 'inherit'
+                AND p.post_mime_type LIKE 'image/%'";
+        if ( ! current_user_can( 'edit_others_posts' ) ) {
+            $sql .= $wpdb->prepare( ' AND p.post_author = %d', get_current_user_id() );
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Static aggregate with a prepared optional author clause; result is cached below.
+        $row = $wpdb->get_row( $sql, ARRAY_A );
+        wp_cache_set( $key, $row, 'lookit-media-master', 60 );
     }
+
+    $counts                    = array_map( 'intval', (array) $row );
     $counts['missing']         = $counts['total'] - $counts['has_alt'];
     $counts['missing_caption'] = $counts['total'] - $counts['has_caption'];
     $counts['missing_desc']    = $counts['total'] - $counts['has_desc'];
@@ -975,16 +1078,96 @@ function lmt_is_auto_title( $post_id ) {
     if ( ! $file ) { return false;
     }
 
+    return lmt_title_matches_file( $title, $file );
+}
+
+/**
+ * v3.39.0 — the comparison half of lmt_is_auto_title(), split out so it can be
+ * run against rows fetched in bulk rather than forcing a get_post() +
+ * get_attached_file() pair per attachment. Behaviour is identical.
+ */
+function lmt_title_matches_file( $title, $file ) {
+    $title = (string) $title;
+    if ( '' === $title ) { return true;
+    }
+    if ( '' === (string) $file ) { return false;
+    }
+
     $basename = pathinfo( $file, PATHINFO_FILENAME );
     if ( '' === $basename ) { return false;
     }
 
-    if ( 0 === strcmp( $title, $basename ) ) {     return true;
+    if ( $basename === $title ) {                   return true;
     }
-    if ( 0 === strcmp( $title, sanitize_title( $basename ) ) ) { return true;
+    if ( sanitize_title( $basename ) === $title ) { return true;
     }
 
     return false;
+}
+
+/**
+ * v3.39.1 — auto/custom title status for the whole image library, in one
+ * query with a static shape (no interpolated placeholder list).
+ *
+ * Returns [ id => bool ] for every image attachment. Callers that only care
+ * about a subset intersect against their own ID list — the row set is the
+ * same either way, so an IN() clause bought nothing and needed dynamic SQL.
+ */
+function lmt_auto_title_library_map() {
+    global $wpdb;
+
+    $scope     = 'user_' . get_current_user_id();
+    $cache_key = 'lmt_auto_title_map_' . lmt_media_cache_generation( 'lmt_title_cache_generation' ) . '_' . $scope;
+    $map       = wp_cache_get( $cache_key, 'lookit-media-master' );
+    if ( is_array( $map ) ) {
+        return $map;
+    }
+
+    $sql = "SELECT p.ID, p.post_title, m.meta_value AS attached_file
+           FROM {$wpdb->posts} p
+           LEFT JOIN {$wpdb->postmeta} m
+                  ON m.post_id = p.ID AND m.meta_key = '_wp_attached_file'
+          WHERE p.post_type = 'attachment'
+            AND p.post_status = 'inherit'
+            AND p.post_mime_type LIKE 'image/%'";
+    if ( ! current_user_can( 'edit_others_posts' ) ) {
+        $sql .= $wpdb->prepare( ' AND p.post_author = %d', get_current_user_id() );
+    }
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Static bulk lookup with a prepared optional author clause; result is cached below.
+    $rows = $wpdb->get_results( $sql );
+
+    $map = array();
+    foreach ( (array) $rows as $r ) {
+        $id = (int) $r->ID;
+        if ( lmt_user_can_edit_attachment( $id ) ) {
+            $map[ $id ] = lmt_title_matches_file( $r->post_title, (string) $r->attached_file );
+        }
+    }
+
+    wp_cache_set( $cache_key, $map, 'lookit-media-master', 60 );
+
+    return $map;
+}
+
+/**
+ * v3.39.0 — auto/custom title status for many attachments without a query per
+ * attachment. Returns [ id => bool ].
+ */
+function lmt_auto_title_map( array $ids ) {
+    $ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+    $out = array();
+    if ( ! $ids ) { return $out;
+    }
+
+    $library = lmt_auto_title_library_map();
+
+    foreach ( $ids as $id ) {
+        // Anything not in the map (non-image, or deleted mid-request) counts
+        // as auto, matching lmt_is_auto_title()'s behaviour for a missing post.
+        $out[ $id ] = array_key_exists( $id, $library ) ? $library[ $id ] : true;
+    }
+
+    return $out;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1000,14 +1183,24 @@ function lmt_is_auto_title( $post_id ) {
 function lmt_attachment_usage_count( $id ) {
     global $wpdb;
 
-    $id   = (int) $id;
+    $id = (int) $id;
+    if ( ! lmt_user_can_edit_attachment( $id ) ) {
+        return 0;
+    }
+
+    $cache_key = 'lmt_usage_' . lmt_media_cache_generation( 'lmt_usage_cache_generation' ) . '_' . $id;
+    $cached    = wp_cache_get( $cache_key, 'lookit-media-master' );
+    if ( false !== $cached ) {
+        return (int) $cached;
+    }
+
     $file = get_attached_file( $id );
     $base = $file ? basename( $file ) : '';
 
     $like_class = '%' . $wpdb->esc_like( 'wp-image-' . $id ) . '%';
     $like_file  = '' !== $base ? '%' . $wpdb->esc_like( $base ) . '%' : '%__lmt_no_match__%';
 
-    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin-only usage count; caching noted for production hardening.
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin-only usage count; result cached below.
     $count = $wpdb->get_var( $wpdb->prepare(
         "SELECT COUNT(DISTINCT p.ID)
            FROM {$wpdb->posts} p
@@ -1024,8 +1217,69 @@ function lmt_attachment_usage_count( $id ) {
         $like_class, $like_file, $id
     ) );
 
-    return (int) $count;
+    $count = (int) $count;
+    wp_cache_set( $cache_key, $count, 'lookit-media-master', 300 );
+
+    return $count;
 }
+
+/**
+ * v3.39.2 — usage counts for a set of attachments.
+ *
+ * v3.39.0 ran this as a single scan with a runtime-generated SELECT list. That
+ * was faster, but the generated SQL tripped the WAF on upload, so it is gone.
+ * The per-attachment query above is the original, unchanged. What keeps the
+ * screen fast now is that the grid no longer waits for these at all: the counts
+ * are fetched after the grid renders, and cached once computed.
+ *
+ * NOTE for Vadim: the durable fix is a count in attachment meta, invalidated on
+ * save_post / delete_post. That removes the repeated scans for good, and is
+ * worth doing before this goes anywhere near WP.org.
+ *
+ * Returns [ id => int ].
+ */
+function lmt_attachment_usage_counts( array $ids ) {
+    $ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+    $out = array();
+
+    foreach ( $ids as $id ) {
+        if ( lmt_user_can_edit_attachment( $id ) ) {
+            $out[ $id ] = lmt_attachment_usage_count( $id );
+        }
+    }
+
+    return $out;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AJAX — USAGE COUNTS (deferred)
+//  v3.39.0 — the list grids no longer block on usage counts. They
+//  render immediately, then ask for the counts for the visible page
+//  and drop them into place. Same numbers, the grid just stops
+//  waiting on a table scan to appear.
+// ═══════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_lmt_usage_counts', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) { wp_die( 'Forbidden', 403 );
+    }
+
+    // v3.39.3 — ids arrive as an array (ids[]), so there is no delimited string
+    // to take apart server-side. intval on every element is the sanitization.
+    $raw = isset( $_POST['ids'] ) ? wp_unslash( $_POST['ids'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Each array element is normalized with absint below.
+    $ids = is_array( $raw ) ? array_slice( array_values( array_unique( array_filter( array_map( 'absint', $raw ) ) ) ), 0, 100 ) : array();
+    $ids = array_values( array_filter( $ids, 'lmt_user_can_edit_attachment' ) );
+
+    if ( ! $ids ) {
+        wp_send_json_success( array( 'counts' => (object) array() ) );
+    }
+
+    // Warms the meta cache so the get_attached_file() calls in the helper are
+    // one query rather than one per attachment.
+    update_meta_cache( 'post', $ids );
+
+    wp_send_json_success( array( 'counts' => lmt_attachment_usage_counts( $ids ) ) );
+} );
 
 // ═══════════════════════════════════════════════════════════════
 //  AJAX — USAGE LIST: posts/pages that embed a given attachment
@@ -1092,7 +1346,7 @@ add_action( 'wp_ajax_lmt_title_get_batch', function () {
 
     $page         = max( 1, intval( $_POST['page'] ?? 1 ) );
     $per_page_raw = sanitize_text_field( wp_unslash( $_POST['per_page'] ?? '30' ) );
-    $per_page     = ( 'all' === $per_page_raw ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
+    $per_page     = ( 'all' === $per_page_raw ) ? 500 : min( 500, max( 1, intval( $per_page_raw ) ) );
     $filter       = sanitize_text_field( wp_unslash( $_POST['filter'] ?? 'all' ) );
     $search       = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
     $sort         = sanitize_text_field( wp_unslash( $_POST['sort'] ?? 'date_desc' ) );
@@ -1115,38 +1369,40 @@ add_action( 'wp_ajax_lmt_title_get_batch', function () {
             $order = 'ASC'; break;
     }
 
-    // We can't filter "auto vs custom" in SQL cleanly (post_title vs filename
-    // requires per-row comparison), so we over-fetch and filter in PHP when
-    // filter=auto or filter=custom. For 'all' we paginate normally.
     if ( 'auto' === $filter || 'custom' === $filter ) {
-        $all_args = array(
+        $auto_map = lmt_auto_title_library_map();
+        $matched  = array_keys(
+            array_filter(
+                $auto_map,
+                static function ( $is_auto ) use ( $filter ) {
+                    return 'auto' === $filter ? $is_auto : ! $is_auto;
+                }
+            )
+        );
+        if ( ! $matched ) {
+            $ids   = array();
+            $total = 0;
+        } else {
+            $args = array(
             'post_type'      => 'attachment',
             'post_mime_type' => $mime,
             'post_status'    => 'inherit',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
+            'posts_per_page' => $per_page,
+            'paged'          => $page,
+            'post__in'       => $matched,
             'orderby'        => $orderby,
             'order'          => $order,
-        );
-        if ( '' !== $sort_meta ) { $all_args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
-        }        if ( '' !== $search ) { $all_args['s'] = $search;
-        }
-        $all_ids = array_values( array_filter( ( new WP_Query( $all_args ) )->posts, 'lmt_user_can_edit_attachment' ) );
-
-        $matched = array();
-        foreach ( $all_ids as $aid ) {
-            $is_auto = lmt_is_auto_title( $aid );
-            if ( ( 'auto' === $filter && $is_auto ) || ( 'custom' === $filter && ! $is_auto ) ) {
-                $matched[] = $aid;
+            );
+            if ( '' !== $sort_meta ) {
+                $args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Admin-only sort by filename.
             }
-        }
-
-        $total = count( $matched );
-        if ( $per_page < 1 ) {
-            $ids = $matched;
-        } else {
-            $offset = ( $page - 1 ) * $per_page;
-            $ids    = array_slice( $matched, $offset, $per_page );
+            if ( '' !== $search ) {
+                $args['s'] = $search;
+            }
+            $args  = lmt_scope_attachment_query_args( $args );
+            $query = new WP_Query( $args );
+            $ids   = array_values( array_filter( wp_list_pluck( $query->posts, 'ID' ), 'lmt_user_can_edit_attachment' ) );
+            $total = $query->found_posts;
         }
     } else {
         $args = array(
@@ -1155,22 +1411,22 @@ add_action( 'wp_ajax_lmt_title_get_batch', function () {
             'post_status'    => 'inherit',
             'posts_per_page' => $per_page,
             'paged'          => $page,
-            'fields'         => 'ids',
             'orderby'        => $orderby,
             'order'          => $order,
         );
         if ( '' !== $sort_meta ) { $args['meta_key'] = $sort_meta; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- admin-only sort by filename.
         }        if ( '' !== $search ) { $args['s'] = $search;
         }
-        $all_ids = lmt_accessible_attachment_ids( $args );
-        $total   = count( $all_ids );
-        $ids     = lmt_paginate_attachment_ids( $all_ids, $page, $per_page );
+        $args  = lmt_scope_attachment_query_args( $args );
+        $query = new WP_Query( $args );
+        // v3.39.3 — see note on the alt batch handler.
+        $ids   = array_values( array_filter( wp_list_pluck( $query->posts, 'ID' ), 'lmt_user_can_edit_attachment' ) );
+        $total = $query->found_posts;
     }
 
     $items = array();
     foreach ( $ids as $id ) {
-        $thumb   = wp_get_attachment_image_url( $id, 'medium_large' );
-        $thumb   = $thumb ? $thumb : '';
+        $thumb   = (string) wp_get_attachment_image_url( $id, 'medium' );
         $post    = get_post( $id );
         $title   = $post ? (string) $post->post_title : '';
         $file    = get_attached_file( $id );
@@ -1182,7 +1438,8 @@ add_action( 'wp_ajax_lmt_title_get_batch', function () {
             'title'     => $title,
             'is_auto'   => lmt_is_auto_title( $id ),
             'has_alt'   => ( get_post_meta( $id, '_wp_attachment_image_alt', true ) ? true : false ),
-            'used'      => lmt_attachment_usage_count( $id ),
+            // v3.39.0 — deferred, see lmt_usage_counts.
+            'used'      => null,
             'width'     => $meta['width'] ?? 0,
             'height'    => $meta['height'] ?? 0,
             'edit_url'   => (string) get_edit_post_link( $id, '' ),
@@ -1239,16 +1496,18 @@ add_action( 'wp_ajax_lmt_title_stats', function () {
     if ( ! current_user_can( 'upload_files' ) ) { wp_die( 'Forbidden', 403 );
     }
 
-    $all_ids = lmt_accessible_attachment_ids( array(
-        'post_type'      => 'attachment',
-        'post_mime_type' => 'image',
-        'post_status'    => 'inherit',
-    ) );
+    // v3.39.0 — was: load every attachment ID with posts_per_page => -1, then
+    // call lmt_is_auto_title() on each. Because 'fields' => 'ids' primes no
+    // caches, that fired two queries per image — thousands of queries on every
+    // visit to the Titles tab, running alongside the grid load. This is now one
+    // cached query, matching what lmt_alt_stats has done since v3.20.0.
+    // v3.39.1 — shares that query with the auto/custom filter.
+    $map = lmt_auto_title_library_map();
 
-    $total = count( $all_ids );
+    $total = count( $map );
     $auto  = 0;
-    foreach ( $all_ids as $aid ) {
-        if ( lmt_is_auto_title( $aid ) ) { $auto++;
+    foreach ( $map as $is_auto ) {
+        if ( $is_auto ) { $auto++;
         }
     }
 
@@ -1321,7 +1580,7 @@ add_action( 'wp_ajax_lmt_mlr_get_images', function () {
 
     $page         = max( 1, intval( $_POST['page'] ?? 1 ) );
     $per_page_raw = sanitize_text_field( wp_unslash( $_POST['per_page'] ?? '30' ) );
-    $per_page     = ( 'all' === $per_page_raw ) ? -1 : min( 500, max( 1, intval( $per_page_raw ) ) );
+    $per_page     = ( 'all' === $per_page_raw ) ? 500 : min( 500, max( 1, intval( $per_page_raw ) ) );
     $search       = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
     $filter       = sanitize_text_field( wp_unslash( $_POST['filter'] ?? 'all' ) );
     $sort         = sanitize_text_field( wp_unslash( $_POST['sort'] ?? 'date_desc' ) );
@@ -1340,7 +1599,6 @@ add_action( 'wp_ajax_lmt_mlr_get_images', function () {
         'post_status'    => 'inherit',
         'posts_per_page' => $per_page,
         'paged'          => $page,
-        'fields'         => 'ids',
         'orderby'        => 'date',
         'order'          => 'DESC',
     );
@@ -1366,29 +1624,22 @@ add_action( 'wp_ajax_lmt_mlr_get_images', function () {
 
     if ( '' !== $search ) { $args['s'] = $search;
     }
-
-    $all_ids = lmt_accessible_attachment_ids( $args );
     if ( 'large' === $filter ) {
-        $all_ids = array_values(
-            array_filter(
-                $all_ids,
-                function ( $id ) {
-                    $meta = wp_get_attachment_metadata( $id );
-                    return max( $meta['width'] ?? 0, $meta['height'] ?? 0 ) > 1200;
-                }
-            )
-        );
+        $args['lmt_large_images'] = true;
     }
-    $total = count( $all_ids );
-    $ids   = lmt_paginate_attachment_ids( $all_ids, $page, $per_page );
+
+    $args  = lmt_scope_attachment_query_args( $args );
+    $query = new WP_Query( $args );
+    // v3.39.3 — see note on the alt batch handler.
+    $ids        = array_values( array_filter( wp_list_pluck( $query->posts, 'ID' ), 'lmt_user_can_edit_attachment' ) );
+    $real_total = $query->found_posts;
 
     $items = array();
     foreach ( $ids as $id ) {
         $meta       = wp_get_attachment_metadata( $id );
         $file       = get_attached_file( $id );
         $filesize   = $file && file_exists( $file ) ? filesize( $file ) : 0;
-        $thumb      = wp_get_attachment_image_url( $id, 'medium_large' );
-        $thumb      = $thumb ? $thumb : '';
+        $thumb      = (string) wp_get_attachment_image_url( $id, 'medium' );
         $mime       = get_post_mime_type( $id );
         $w          = $meta['width'] ?? 0;
         $h          = $meta['height'] ?? 0;
@@ -1405,13 +1656,15 @@ add_action( 'wp_ajax_lmt_mlr_get_images', function () {
             'has_backup' => $has_backup,
             'has_alt'    => ( get_post_meta( $id, '_wp_attachment_image_alt', true ) ? true : false ),
             'is_auto'    => lmt_is_auto_title( $id ),
-            'used'       => lmt_attachment_usage_count( $id ),
+            // v3.39.0 — deferred, see lmt_usage_counts.
+            'used'       => null,
             // v3.23.0 — same image page the metadata cards link to.
             'detail_url' => admin_url( 'admin.php?page=lookit-media-master&view=attachment&id=' . $id ),
         );
     }
 
-    $pages = ( $per_page < 1 ) ? 1 : max( 1, (int) ceil( $total / $per_page ) );
+    $total = $real_total;
+    $pages = ( $per_page < 1 ) ? 1 : max( 1, (int) ceil( $real_total / $per_page ) );
 
     wp_send_json_success( array(
         'items'    => $items,
@@ -1487,8 +1740,10 @@ add_action(
 	// Validated below by a strict data-URI regex and base64_decode(); sanitize_text_field()
 	// would corrupt the base64 payload, so we only unslash here.
 	// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-	$data   = isset( $_POST['data'] ) ? wp_unslash( $_POST['data'] ) : '';   // base64 data URI
-	$backup = ( '1' === sanitize_text_field( wp_unslash( $_POST['backup'] ?? '1' ) ) );
+	$data       = isset( $_POST['data'] ) ? wp_unslash( $_POST['data'] ) : '';   // base64 data URI
+	$backup     = ( '1' === sanitize_text_field( wp_unslash( $_POST['backup'] ?? '1' ) ) );
+	$max_width  = intval( $_POST['max_width'] ?? 0 );
+	$max_height = intval( $_POST['max_height'] ?? 0 );
 
 	if ( ! $id || ! $data ) { wp_send_json_error( 'Missing data' );
     }
@@ -1508,7 +1763,11 @@ add_action(
 	if ( is_wp_error( $decoded ) ) {
 		wp_send_json_error( $decoded->get_error_message() );
 	}
-	$raw = $decoded['raw'];
+	$raw          = $decoded['raw'];
+	$valid_resize = lmt_validate_resized_image( $id, $decoded, $max_width, $max_height );
+	if ( is_wp_error( $valid_resize ) ) {
+		wp_send_json_error( $valid_resize->get_error_message() );
+	}
 
 	// Backup original if requested
 	if ( $backup ) {
@@ -1561,7 +1820,9 @@ add_action(
 	$id = intval( $_POST['id'] ?? 0 );
 	// Validated below by a strict data-URI regex + base64_decode(); sanitizing would corrupt the payload.
 	// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-	$data = isset( $_POST['data'] ) ? wp_unslash( $_POST['data'] ) : '';
+	$data       = isset( $_POST['data'] ) ? wp_unslash( $_POST['data'] ) : '';
+	$max_width  = intval( $_POST['max_width'] ?? 0 );
+	$max_height = intval( $_POST['max_height'] ?? 0 );
 
 	if ( ! $id || ! $data ) { wp_send_json_error( 'Missing data' );
     }
@@ -1578,7 +1839,11 @@ add_action(
 	if ( is_wp_error( $decoded ) ) {
 		wp_send_json_error( $decoded->get_error_message() );
 	}
-	$raw = $decoded['raw'];
+	$raw          = $decoded['raw'];
+	$valid_resize = lmt_validate_resized_image( $id, $decoded, $max_width, $max_height );
+	if ( is_wp_error( $valid_resize ) ) {
+		wp_send_json_error( $valid_resize->get_error_message() );
+	}
 
 	// Build a unique .webp filename alongside the original.
 	$dir      = dirname( $src );
@@ -1983,7 +2248,7 @@ add_action( 'wp_ajax_lmt_meta_generate', function () {
 
 /** Clear the aggregate stats cache after any metadata write. */
 function lmt_flush_stats_cache() {
-    wp_cache_delete( 'lmt_meta_stats', 'lookit-media-master' );
+    lmt_bump_media_cache_generation( 'lmt_metadata_cache_generation' );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2009,6 +2274,39 @@ add_action( 'wp_ajax_lmt_attachment_get', function () {
  * 'error' key rather than dying so the page can render a proper
  * empty state for a deleted or non-image ID.
  */
+function lmt_attachment_neighbor( $post, $direction ) {
+    $page  = 1;
+    $older = 'older' === $direction;
+    do {
+        $args  = lmt_scope_attachment_query_args(
+            array(
+                'post_type'      => 'attachment',
+                'post_mime_type' => 'image',
+                'post_status'    => 'inherit',
+                'posts_per_page' => 20,
+                'paged'          => $page,
+                'orderby'        => array(
+                    'date' => $older ? 'DESC' : 'ASC',
+                    'ID'   => $older ? 'DESC' : 'ASC',
+                ),
+                'lmt_neighbor'    => array(
+                    'date'      => $post->post_date,
+                    'id'        => $post->ID,
+                    'direction' => $older ? 'older' : 'newer',
+                ),
+            )
+        );
+        $query = new WP_Query( $args );
+        foreach ( wp_list_pluck( $query->posts, 'ID' ) as $candidate ) {
+            if ( lmt_user_can_edit_attachment( $candidate ) ) {
+                return (int) $candidate;
+            }
+        }
+        ++$page;
+    } while ( $page <= (int) $query->max_num_pages );
+    return 0;
+}
+
 function lmt_attachment_record( $id ) {
     $id   = intval( $id );
     $post = $id ? get_post( $id ) : null;
@@ -2021,24 +2319,8 @@ function lmt_attachment_record( $id ) {
     $meta  = wp_get_attachment_metadata( $id );
     $bytes = ( $file && file_exists( $file ) ) ? (int) filesize( $file ) : 0;
 
-    $ids  = get_posts(
-        array(
-            'post_type'      => 'attachment',
-            'post_mime_type' => 'image',
-            'post_status'    => 'inherit',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'orderby'        => array(
-                'date' => 'DESC',
-                'ID'   => 'DESC',
-            ),
-            'no_found_rows'  => true,
-        )
-    );
-    $ids  = array_values( array_filter( $ids, 'lmt_user_can_edit_attachment' ) );
-    $at   = array_search( $id, $ids, true );
-    $prev = false !== $at && isset( $ids[ $at + 1 ] ) ? (int) $ids[ $at + 1 ] : 0;
-    $next = false !== $at && $at > 0 ? (int) $ids[ $at - 1 ] : 0;
+    $prev = lmt_attachment_neighbor( $post, 'older' );
+    $next = lmt_attachment_neighbor( $post, 'newer' );
 
     $base = admin_url( 'admin.php?page=lookit-media-master&view=attachment&id=' );
 
@@ -3123,11 +3405,13 @@ function lmt_render_page() {
     $lmt_settings_saved = lmt_settings_handle_save();
 
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only panel selection.
-    $initial_tab = lmt_sanitize_navigation_tab( isset( $_GET['tab'] ) ? wp_unslash( $_GET['tab'] ) : 'home' );
-    $logo_url    = LMT_PLUGIN_URL . 'assets/logo.png';
+    $initial_tab = isset( $_GET['tab'] ) ? lmt_sanitize_navigation_tab( wp_unslash( $_GET['tab'] ) ) : '';
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter selection.
+    $initial_filter = lmt_sanitize_deep_filter( isset( $_GET['filter'] ) ? wp_unslash( $_GET['filter'] ) : '' );
+    $logo_url       = LMT_PLUGIN_URL . 'assets/logo.png';
     ?>
     <div class="wrap lmt-admin-page">
-    <div class="lmt-wrap" id="lmt-root" data-initial-tab="<?php echo esc_attr( $initial_tab ); ?>">
+    <div class="lmt-wrap" id="lmt-root" data-initial-tab="<?php echo esc_attr( $initial_tab ); ?>" data-initial-filter="<?php echo esc_attr( $initial_filter ); ?>">
 
       <!-- ── Top bar ── -->
       <div class="lmt-topbar">
@@ -3233,6 +3517,57 @@ function lmt_render_page() {
             <p class="lmt-home-lede" id="lmt-home-lede">Pick a job below. You will come back to whatever page you were on.</p>
           </div>
 
+          <?php
+          // v3.36.0 — The stat cards are now the filter, matching the
+                //  tiles on the Alt text & captions screen: each one opens its
+                //  tool with that slice already selected. The standalone
+                //  "Have alt text" card is gone; that number now sits under
+                //  "Missing alt text" the same way caption and description
+                //  counts do.
+                //  v3.38.0 — no red on the alt count. Every counter and every
+                //  card reads the same, so the numbers do the talking rather
+                //  than the colour.
+                ?>
+          <div class="lmt-home-stats" id="lmt-home-stats">
+
+            <button type="button" class="lmt-stat-card lmt-stat-go" data-goto-tab="alt" data-goto-filter="all">
+              <div class="lmt-stat-n" id="lmt-home-n-total">&mdash;</div>
+              <div class="lmt-stat-l">All images</div>
+              <div class="lmt-stat-sub">in the library</div>
+            </button>
+
+            <button type="button" class="lmt-stat-card lmt-stat-go" data-goto-tab="alt" data-goto-filter="missing">
+              <div class="lmt-stat-n" id="lmt-home-n-missing">&mdash;</div>
+              <div class="lmt-stat-l">Missing alt text</div>
+              <div class="lmt-stat-sub"><span id="lmt-home-n-alt">&mdash;</span> have one</div>
+            </button>
+
+            <button type="button" class="lmt-stat-card lmt-stat-go" data-goto-tab="alt" data-goto-filter="missing_caption">
+              <div class="lmt-stat-n" id="lmt-home-n-cap">&mdash;</div>
+              <div class="lmt-stat-l">Missing caption</div>
+              <div class="lmt-stat-sub"><span id="lmt-home-n-cap-have">&mdash;</span> have one</div>
+            </button>
+
+            <button type="button" class="lmt-stat-card lmt-stat-go" data-goto-tab="alt" data-goto-filter="missing_desc">
+              <div class="lmt-stat-n" id="lmt-home-n-desc">&mdash;</div>
+              <div class="lmt-stat-l">Missing description</div>
+              <div class="lmt-stat-sub"><span id="lmt-home-n-desc-have">&mdash;</span> have one</div>
+            </button>
+
+            <button type="button" class="lmt-stat-card lmt-stat-go" data-goto-tab="title" data-goto-filter="auto">
+              <div class="lmt-stat-n" id="lmt-home-n-titles">&mdash;</div>
+              <div class="lmt-stat-l">Filename titles</div>
+              <div class="lmt-stat-sub"><span id="lmt-home-n-titles-custom">&mdash;</span> have a real title</div>
+            </button>
+
+          </div>
+
+          <?php
+          // v3.36.0 — Cards may now carry a filter as well as a tab.
+                //  data-goto-filter is handed to the tool's own filter setter
+                //  after the tab switch, so "Add missing captions" opens the
+                //  Alt text tool already showing only that slice.
+                ?>
           <div class="lmt-home-grid">
 
             <button type="button" class="lmt-home-card" data-goto-tab="mlr">
@@ -3244,7 +3579,7 @@ function lmt_render_page() {
               <span class="lmt-home-stat" id="lmt-home-stat-mlr">Open the resizer &rarr;</span>
             </button>
 
-            <button type="button" class="lmt-home-card lmt-home-attn" data-goto-tab="alt">
+            <button type="button" class="lmt-home-card" id="lmt-home-card-alt" data-goto-tab="alt" data-goto-filter="missing">
               <span class="lmt-home-ico">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               </span>
@@ -3253,7 +3588,25 @@ function lmt_render_page() {
               <span class="lmt-home-stat" id="lmt-home-stat-alt">Open the metadata manager &rarr;</span>
             </button>
 
-            <button type="button" class="lmt-home-card" data-goto-tab="title">
+            <button type="button" class="lmt-home-card" id="lmt-home-card-cap" data-goto-tab="alt" data-goto-filter="missing_caption">
+              <span class="lmt-home-ico">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="14" x2="12" y2="14"/><line x1="15" y1="14" x2="18" y2="14"/></svg>
+              </span>
+              <span class="lmt-home-t">Add missing captions</span>
+              <span class="lmt-home-d">The short line shown under an image on the page. AI can draft these alongside the alt text.</span>
+              <span class="lmt-home-stat" id="lmt-home-stat-cap">Open the metadata manager &rarr;</span>
+            </button>
+
+            <button type="button" class="lmt-home-card" id="lmt-home-card-desc" data-goto-tab="alt" data-goto-filter="missing_desc">
+              <span class="lmt-home-ico">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"/><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+              </span>
+              <span class="lmt-home-t">Add missing descriptions</span>
+              <span class="lmt-home-d">The longer text stored with each image, used on attachment pages and by some galleries.</span>
+              <span class="lmt-home-stat" id="lmt-home-stat-desc">Open the metadata manager &rarr;</span>
+            </button>
+
+            <button type="button" class="lmt-home-card" id="lmt-home-card-title" data-goto-tab="title" data-goto-filter="auto">
               <span class="lmt-home-ico">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
               </span>
@@ -3271,13 +3624,6 @@ function lmt_render_page() {
               <span class="lmt-home-stat">Export or import &rarr;</span>
             </button>
 
-          </div>
-
-          <div class="lmt-home-stats" id="lmt-home-stats" hidden>
-            <div class="lmt-stat-card"><div class="lmt-stat-n" id="lmt-home-n-total">&mdash;</div><div class="lmt-stat-l">Images</div></div>
-            <div class="lmt-stat-card lmt-stat-ok"><div class="lmt-stat-n" id="lmt-home-n-alt">&mdash;</div><div class="lmt-stat-l">Have alt text</div></div>
-            <div class="lmt-stat-card lmt-stat-bad"><div class="lmt-stat-n" id="lmt-home-n-missing">&mdash;</div><div class="lmt-stat-l">Missing alt text</div></div>
-            <div class="lmt-stat-card"><div class="lmt-stat-n" id="lmt-home-n-titles">&mdash;</div><div class="lmt-stat-l">Filename titles</div></div>
           </div>
 
         </div>
@@ -3304,14 +3650,14 @@ function lmt_render_page() {
               <span>Resize &amp; compress</span>
             </div>
             <h2 class="lmt-page-title">Make images smaller</h2>
-            <p class="lmt-page-lede">Pick a width, choose your images, then run it. Originals are backed up first, so any image can be put back the way it was.</p>
+            <p class="lmt-page-lede">Pick a size, choose your images, then run it. Originals are backed up first, so any image can be put back the way it was.</p>
           </div>
 
 
           <!-- ── UPLOAD VIEW (shown when "Upload Images" is clicked) ── -->
           <div class="lmt-subview" id="lmt-upload-view" style="display:none">
 
-          <div class="lmt-action-bar" style="margin-bottom:14px;">
+          <div class="lmt-action-bar">
             <button type="button" class="lmt-btn" id="lkir-back-btn">&#8592; Back to Library</button>
             <span class="lmt-status-text" style="margin-left:0;color:var(--text-2)">Upload &amp; compress new images — nothing is sent to the server until you click upload.</span>
           </div>
@@ -3344,10 +3690,19 @@ function lmt_render_page() {
               </div>
               <div class="lmt-section-body">
                 <div class="lmt-radio-group">
-                  <label><input type="radio" name="lkir_size" value="2400"> <span>2400px</span> <em>Large · hero / slider</em></label>
-                  <label><input type="radio" name="lkir_size" value="1200" checked> <span>1200px</span> <em>Standard · default</em></label>
-                  <label><input type="radio" name="lkir_size" value="800"> <span>800px</span> <em>Medium · blog</em></label>
-                  <label><input type="radio" name="lkir_size" value="600"> <span>600px</span> <em>Small · inline / grid</em></label>
+                  <?php
+                  // v3.32.0 — Tier names matched to the Resize & compress
+                        //  presets so the plugin uses one vocabulary. This list
+                        //  is longest-edge, not a box, so the numbers are
+                        //  deliberately unchanged.
+                        ?>
+                  <label><input type="radio" name="lkir_size" value="2560"> <span>2560px</span> <em>Hero &middot; retina</em></label>
+                  <label><input type="radio" name="lkir_size" value="1920"> <span>1920px</span> <em>Hero</em></label>
+                  <label><input type="radio" name="lkir_size" value="2400"> <span>2400px</span> <em>Full width &middot; retina</em></label>
+                  <label><input type="radio" name="lkir_size" value="1200" checked> <span>1200px</span> <em>Full width</em></label>
+                  <label><input type="radio" name="lkir_size" value="1600"> <span>1600px</span> <em>Standard &middot; retina</em></label>
+                  <label><input type="radio" name="lkir_size" value="800"> <span>800px</span> <em>Standard</em></label>
+                  <label><input type="radio" name="lkir_size" value="600"> <span>600px</span> <em>Medium</em></label>
                   <label class="lmt-custom-row">
                     <input type="radio" name="lkir_size" value="custom"> <span>Custom</span> <em>px</em>
                     <input type="number" id="lkir-custom-px" min="16" max="8000" placeholder="e.g. 1400" class="lmt-custom-input" />
@@ -3425,28 +3780,52 @@ function lmt_render_page() {
           <div class="lmt-section lmt-section-panel lmt-resize-setup">
             <div class="lmt-section-head">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-              <span class="lmt-section-title">Width</span>
-              <span class="lmt-section-note">Height follows automatically</span>
+              <?php
+              // v3.31.0 — One behaviour: every image is fitted inside a
+                    //  width x height box. The Width / Height / Both switch is
+                    //  gone; the box does both jobs and cannot surprise anyone
+                    //  with a dimension they did not set.
+                    ?>
+              <span class="lmt-section-title">Size</span>
+              <span class="lmt-section-note" id="mlr-dim-note">Each image is fitted inside the box, never stretched</span>
             </div>
 
             <div class="lmt-section-body lmt-size-body">
               <div class="lmt-radio-group lmt-size-chips">
-                <label><input type="radio" name="mlr_size" value="2560"> <span>2560px</span> <em>Max</em></label>
-                <label><input type="radio" name="mlr_size" value="2400"> <span>2400px</span> <em>Hero</em></label>
-                <label><input type="radio" name="mlr_size" value="1200" checked> <span>1200px</span> <em>Standard</em></label>
-                <label><input type="radio" name="mlr_size" value="800"> <span>800px</span> <em>Medium</em></label>
-                <label><input type="radio" name="mlr_size" value="600"> <span>600px</span> <em>Small</em></label>
-                <label class="lmt-custom-row">
-                  <input type="radio" name="mlr_size" value="custom"> <span>Custom</span>
-                  <input type="number" id="mlr-custom-px" min="16" max="8000" placeholder="px" class="lmt-custom-input" />
-                </label>
+                <?php
+                // v3.32.0 — Presets now follow the house sizing table:
+                      //  four tiers, each with its retina pair above its display
+                      //  size, plus Medium. The chips carry the width only; the
+                      //  height in the label is derived at 4:3 by
+                      //  relabelSizeChips(), and every size below is 4:3, so the
+                      //  rendered pairs match the table exactly.
+                      //
+                      //  The old labels were a tier out: 2400 was called Hero when
+                      //  it is the retina of full content width, and 1200 was called
+                      //  Standard when it is full width at display size. Same pixels,
+                      //  corrected names, plus 1920 and 1600 which were missing.
+                      ?>
+                <label><input type="radio" name="mlr_size" value="2560"> <span>2560px</span> <em>Hero &middot; retina</em></label>
+                <label><input type="radio" name="mlr_size" value="1920"> <span>1920px</span> <em>Hero</em></label>
+                <label><input type="radio" name="mlr_size" value="2400"> <span>2400px</span> <em>Full width &middot; retina</em></label>
+                <label><input type="radio" name="mlr_size" value="1200" checked> <span>1200px</span> <em>Full width</em></label>
+                <label><input type="radio" name="mlr_size" value="1600"> <span>1600px</span> <em>Standard &middot; retina</em></label>
+                <label><input type="radio" name="mlr_size" value="800"> <span>800px</span> <em>Standard</em></label>
+                <label><input type="radio" name="mlr_size" value="600"> <span>600px</span> <em>Medium</em></label>
+
 
                 <!-- Saved custom sizes (named, reorderable — stored per browser) -->
                 <div class="lmt-saved-sizes" id="mlr-saved-sizes"></div>
 
                 <div class="lmt-saved-add">
-                  <input type="text" id="mlr-saved-name" class="lmt-text-input" placeholder="Name this width" maxlength="40" />
+                  <input type="text" id="mlr-saved-name" class="lmt-text-input" placeholder="Name this size" maxlength="40" />
                   <input type="number" id="mlr-saved-px" class="lmt-text-input lmt-saved-px" min="16" max="8000" placeholder="px" />
+                  <?php
+                  // v3.29.0 — Second field, shown only in Both mode, so a
+                        //  saved size can hold a width and a height.
+                        ?>
+                  <span class="lmt-saved-x" id="mlr-saved-x">&times;</span>
+                  <input type="number" id="mlr-saved-h" class="lmt-text-input lmt-saved-px" min="16" max="8000" placeholder="px" />
                   <button type="button" class="lmt-btn lmt-btn-sm" id="mlr-saved-add-btn">+ Save</button>
                 </div>
               </div>
@@ -3493,10 +3872,6 @@ function lmt_render_page() {
             <input type="text" id="mlr-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
             <button type="button" class="lmt-btn" id="mlr-btn-load">Load Images</button>
             <button type="button" class="lmt-btn" id="mlr-btn-upload-view">&#8593; Import Media</button>
-            <label class="lmt-toggle-row" style="margin-left:auto;">
-              <input type="checkbox" id="mlr-select-all" />
-              <span>Select all</span>
-            </label>
             <span class="lmt-status-text" id="mlr-status"></span>
           </div>
 
@@ -3515,6 +3890,15 @@ function lmt_render_page() {
               <input type="range" id="mlr-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
               <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
             </div>
+            <?php
+            // v3.29.0 — Select all sits with the other view controls, next
+                  //  to the size slider, rather than at the far end of the
+                  //  action bar. Same id, so the existing handler is unchanged.
+                  ?>
+            <label class="lmt-toggle-row lmt-view-selectall">
+              <input type="checkbox" id="mlr-select-all" />
+              <span>Select all</span>
+            </label>
             <label class="lmt-view-perpage">
               <span>Sort</span>
               <select id="mlr-sort" class="lmt-select lmt-select-sm">
@@ -3668,10 +4052,6 @@ function lmt_render_page() {
               <option value="complete">Complete (all three)</option>
             </select>
             <button class="lmt-btn" id="alt-refresh-btn">↺ Refresh</button>
-            <label class="lmt-toggle-row">
-              <input type="checkbox" id="alt-select-all">
-              <span>Select all on page</span>
-            </label>
             <div style="flex:1"></div>
             <label class="lmt-toggle-row">
               <input type="checkbox" id="alt-overwrite">
@@ -3698,6 +4078,15 @@ function lmt_render_page() {
               <input type="range" id="alt-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
               <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
             </div>
+            <?php
+            // v3.29.0 — Select all sits with the other view controls, next
+                  //  to the size slider, rather than at the far end of the
+                  //  action bar. Same id, so the existing handler is unchanged.
+                  ?>
+            <label class="lmt-toggle-row lmt-view-selectall">
+              <input type="checkbox" id="alt-select-all" />
+              <span>Select all</span>
+            </label>
             <label class="lmt-view-perpage">
               <span>Sort</span>
               <select id="alt-sort" class="lmt-select lmt-select-sm">
@@ -3806,7 +4195,6 @@ function lmt_render_page() {
               <span id="title-filter-pill-text"></span>
               <button type="button" class="lmt-filter-pill-x" data-tileclear="title" title="Show all images" aria-label="Clear filter">&times;</button>
             </span>
-            <span class="lmt-filter-hint">Titles seed alt text, so clearing this list first makes the Alt tab faster.</span>
           </div>
 
           <!-- AI banner -->
@@ -3830,10 +4218,6 @@ function lmt_render_page() {
               <option value="auto">Auto titles only</option>
             </select>
             <button class="lmt-btn" id="title-refresh-btn">↺ Refresh</button>
-            <label class="lmt-toggle-row">
-              <input type="checkbox" id="title-select-all">
-              <span>Select all on page</span>
-            </label>
             <div style="flex:1"></div>
             <label class="lmt-toggle-row">
               <input type="checkbox" id="title-overwrite">
@@ -3860,6 +4244,15 @@ function lmt_render_page() {
               <input type="range" id="title-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
               <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
             </div>
+            <?php
+            // v3.29.0 — Select all sits with the other view controls, next
+                  //  to the size slider, rather than at the far end of the
+                  //  action bar. Same id, so the existing handler is unchanged.
+                  ?>
+            <label class="lmt-toggle-row lmt-view-selectall">
+              <input type="checkbox" id="title-select-all" />
+              <span>Select all</span>
+            </label>
             <label class="lmt-view-perpage">
               <span>Sort</span>
               <select id="title-sort" class="lmt-select lmt-select-sm">
@@ -4116,10 +4509,13 @@ function lmt_render_page() {
 
                 <label class="lmt-label" for="imp-img-size" style="margin-left:14px">Longest edge</label>
                 <select id="imp-img-size" class="lmt-select lmt-select-sm">
-                  <option value="2400">2400px &mdash; hero / slider</option>
-                  <option value="1200" selected>1200px &mdash; standard</option>
-                  <option value="800">800px &mdash; blog</option>
-                  <option value="600">600px &mdash; inline / grid</option>
+                  <option value="2560">2560px &mdash; hero, retina</option>
+                  <option value="1920">1920px &mdash; hero</option>
+                  <option value="2400">2400px &mdash; full width, retina</option>
+                  <option value="1200" selected>1200px &mdash; full width</option>
+                  <option value="1600">1600px &mdash; standard, retina</option>
+                  <option value="800">800px &mdash; standard</option>
+                  <option value="600">600px &mdash; medium</option>
                   <option value="0">Don't resize</option>
                 </select>
 

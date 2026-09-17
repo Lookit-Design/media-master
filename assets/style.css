@@ -4,7 +4,11 @@
    Namespace: .lmt-
    ═══════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
+/* v3.31.0 — One typeface for the whole plugin. The monospace face (DM Mono,
+   briefly Roboto Mono) drew slashed zeros, which read as a glitch in
+   filenames and dimensions. Everything is DM Sans now, with tabular figures
+   where numbers need to line up. */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 
 /* ── Tokens ──────────────────────────────────────────────────────── */
 .lmt-wrap {
@@ -360,7 +364,8 @@
 .lmt-filelist {
   margin: 10px 0 0;
   font-size: calc(12.5px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--blue-bright);
   word-break: break-all;
   line-height: 1.8;
@@ -403,7 +408,8 @@
 .lmt-radio-group label span {
   font-weight: 700;
   font-size: calc(14.5px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
   min-width: 54px;
 }
@@ -428,7 +434,8 @@
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-sm);
   font-size: calc(14px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   background: var(--s1);
   color: var(--text);
   outline: none;
@@ -500,7 +507,8 @@
 }
 
 .lmt-quality-bubble {
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   font-size: calc(13.5px * var(--lmt-fs, 1));
   font-weight: 500;
   color: var(--blue-bright);
@@ -595,7 +603,8 @@
 
 .lmt-status-text {
   font-size: calc(13px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--text-3);
   margin-left: auto;
 }
@@ -673,7 +682,8 @@
 
 .lmt-progress-sub {
   font-size: calc(13px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--text-3);
 }
 
@@ -682,7 +692,8 @@
   max-height: 120px;
   overflow-y: auto;
   font-size: calc(12.5px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--text-3);
   border-top: 1px solid var(--border);
   padding-top: 8px;
@@ -727,7 +738,8 @@
   letter-spacing: -1px;
   line-height: 1;
   color: var(--text);
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 .lmt-stat-green strong { color: var(--green); }
@@ -839,7 +851,8 @@
 
 .lmt-img-filename {
   font-size: calc(12.5px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
@@ -849,7 +862,8 @@
 .lmt-img-dims {
   font-size: calc(12px * var(--lmt-fs, 1));
   color: var(--text-3);
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Attention chips (cross-tab worklist signals) ────────────────── */
@@ -985,7 +999,8 @@
 .lmt-saved-row:hover { background: var(--s2); }
 .lmt-saved-row.lmt-dragging { opacity: 0.5; }
 .lmt-saved-handle { color: var(--text-3); cursor: grab; font-size: calc(14px * var(--lmt-fs, 1)); user-select: none; }
-.lmt-saved-row em { color: var(--text-3); font-size: calc(12px * var(--lmt-fs, 1)); font-family: 'DM Mono', monospace; }
+.lmt-saved-row em { color: var(--text-3); font-size: calc(12px * var(--lmt-fs, 1)); font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; }
 .lmt-saved-del {
   margin-left: auto;
   background: transparent; border: none; color: var(--text-3);
@@ -1084,7 +1099,8 @@
 }
 
 .lmt-loadmore:empty { display: none; }
-.lmt-loadmore-info { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--text-3); font-family: 'DM Mono', monospace; }
+.lmt-loadmore-info { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--text-3); font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; }
 
 /* ── List view mode ──────────────────────────────────────────────── */
 .lmt-image-grid-wrap.lmt-list .lmt-image-grid {
@@ -1211,7 +1227,8 @@
   border: 1px solid var(--border-mid);
   border-radius: var(--radius-sm);
   font-size: calc(13px * var(--lmt-fs, 1));
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   color: var(--text-3);
   line-height: 1.6;
 }
@@ -1299,7 +1316,8 @@
 .lmt-count-label {
   font-size: calc(13px * var(--lmt-fs, 1));
   color: var(--text-3);
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   margin-bottom: 12px;
 }
 
@@ -1642,7 +1660,8 @@
   border-radius: var(--radius-md);
 }
 .lmt-x-summary-main { display: flex; align-items: center; gap: 10px; font-size: calc(15px * var(--lmt-fs, 1)); color: var(--text); }
-.lmt-x-summary-main strong { font-size: calc(16px * var(--lmt-fs, 1)); font-weight: 600; font-family: 'DM Mono', monospace; }
+.lmt-x-summary-main strong { font-size: calc(16px * var(--lmt-fs, 1)); font-weight: 600; font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; }
 .lmt-x-summary button { margin-left: auto; }
 .lmt-x-dot { width: 3px; height: 3px; border-radius: 99px; background: var(--text-3); }
 
@@ -1659,12 +1678,14 @@
   font-size: calc(14.5px * var(--lmt-fs, 1)); color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.lmt-x-jobmeta { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--text-3); margin-top: 3px; font-family: 'DM Mono', monospace; }
+.lmt-x-jobmeta { font-size: calc(13px * var(--lmt-fs, 1)); color: var(--text-3); margin-top: 3px; font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; }
 .lmt-x-job-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .lmt-x-job-actions a.lmt-btn { text-decoration: none; }
 
 #exp-folders-note code {
-  font-family: 'DM Mono', monospace; font-size: calc(12.5px * var(--lmt-fs, 1));
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; font-size: calc(12.5px * var(--lmt-fs, 1));
   padding: 1px 5px; border-radius: 4px;
   background: var(--s3); color: var(--text-2);
 }
@@ -1955,7 +1976,8 @@
   border-bottom: 1px solid var(--border-mid);
 }
 .lmt-att-crumb-file {
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   font-size: calc(13.5px * var(--lmt-fs, 1));
   color: var(--text-2);
   overflow: hidden;
@@ -2018,7 +2040,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lmt-att-mono { font-family: 'DM Mono', monospace; font-size: calc(12.5px * var(--lmt-fs, 1)); }
+.lmt-att-mono { font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; font-size: calc(12.5px * var(--lmt-fs, 1)); }
 
 .lmt-att-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -2306,7 +2329,8 @@
   background: var(--s3);
   border-radius: 3px;
   padding: 1px 5px;
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   font-size: calc(12.5px * var(--lmt-fs, 1));
   color: var(--text-2);
 }
@@ -2403,11 +2427,17 @@
   max-width: 64ch;
 }
 
+/* v3.37.0 — Three across. auto-fit was stretching six cards into one long
+   thin row on a wide screen; a fixed three keeps the description text at a
+   readable measure and gives two even rows. Steps down at narrower widths. */
 .lmt-home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 14px;
 }
+
+@media (max-width: 1100px) { .lmt-home-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px)  { .lmt-home-grid { grid-template-columns: 1fr; } }
 
 .lmt-home-card {
   display: flex;
@@ -2470,24 +2500,52 @@
   font-weight: 500;
 }
 
-.lmt-home-attn .lmt-home-ico {
-  background: var(--amber-sub);
-  border-color: var(--amber-border);
-  color: var(--amber);
-}
+/* v3.38.0 — the amber "needs attention" treatment is gone. Every job card
+   and every counter uses the one blue accent, so nothing on the screen is
+   competing for the eye and the counts carry the urgency on their own. */
 
-.lmt-home-attn .lmt-home-stat { color: var(--amber); }
-
+/* v3.37.0 — The counters moved above the job cards and now read as a header
+   strip for the screen, so the spacing flipped from top to bottom. */
 .lmt-home-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  margin-top: 22px;
+  margin-bottom: 22px;
 }
 
 .lmt-home-stats .lmt-stat-card { padding: 16px 18px; }
-.lmt-home-stats .lmt-stat-ok::before  { background: var(--green); }
-.lmt-home-stats .lmt-stat-bad::before { background: var(--red); }
+
+/* v3.36.0 — the stat cards are filters now, so they are real buttons and
+   need to read as clickable. Same hover lift as the job cards above them. */
+.lmt-stat-go {
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .14s ease, border-color .14s ease;
+}
+.lmt-stat-go:hover {
+  border-color: var(--blue-border);
+  transform: translateY(-2px);
+}
+.lmt-stat-go:focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+
+/* The "N have one" line under a count — the pattern borrowed from the
+   filter tiles on the Alt text & captions screen. */
+.lmt-stat-sub {
+  margin-top: 4px;
+  font-size: calc(12px * var(--lmt-fs, 1));
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lmt-stat-go { transition: none; }
+  .lmt-stat-go:hover { transform: none; }
+}
 
 .lmt-stat-n {
   font-size: calc(28px * var(--lmt-fs, 1));
@@ -2495,9 +2553,6 @@
   letter-spacing: -0.02em;
   line-height: 1;
 }
-
-.lmt-stat-ok  .lmt-stat-n { color: var(--green); }
-.lmt-stat-bad .lmt-stat-n { color: var(--red); }
 
 .lmt-stat-l {
   font-size: calc(12px * var(--lmt-fs, 1));
@@ -3079,11 +3134,6 @@ textarea.lmt-att-input { min-height: 62px; }
   cursor: pointer;
 }
 .lmt-filter-pill-x:hover { background: var(--blue); color: #fff; }
-.lmt-filter-hint {
-  font-size: calc(12.5px * var(--lmt-fs, 1));
-  color: var(--text-3);
-}
-
 .lmt-wrap.lmt-square .lmt-filter-pill,
 .lmt-wrap.lmt-square .lmt-filter-pill-x { border-radius: 0; }
 
@@ -3153,12 +3203,104 @@ textarea.lmt-att-input { min-height: 62px; }
 .lmt-light .lmt-att-canvas { background-color: #e7ebf1; }
 
 /* ── Image page: metadata card ───────────────────────────────────── */
-/* More air between the card head and the first label, and the last field
-   no longer sits hard against the save row. */
-.lmt-att-right .lmt-att-field:first-of-type { margin-top: 22px; }
-.lmt-att-right .lmt-att-field:last-of-type  { padding-bottom: 4px; }
+/* v3.30.1 — The fields are siblings of .lmt-section-head and both are divs,
+   so :first-of-type / :last-of-type never matched a field and the Title
+   label sat hard against the card head. Target the field that follows the
+   head (or the read-only notice) instead. */
+.lmt-att-right .lmt-section-head + .lmt-att-field,
+.lmt-att-right .lmt-grid-empty  + .lmt-att-field { margin-top: 20px; }
+.lmt-att-right .lmt-grid-empty { margin: 16px 18px 0; }
+/* Read-only view has no save row, so the last field needs its own inset. */
+.lmt-att-right .lmt-att-field:last-child { padding-bottom: 18px; }
 .lmt-att-right .lmt-att-save-row { margin-top: 20px; }
 
 /* ── Image page: Open elsewhere ──────────────────────────────────── */
 /* The buttons sat flush against the card head and its left edge. */
 .lmt-att-left .lmt-att-actions { padding: 15px 18px 18px; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.28.0 — Resize by width, height, or both
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* v3.31.0 — .lmt-dim-modes / .lmt-dim-mode removed with the Width/Height/Both
+   switch. The size block now has one behaviour. */
+
+/* The separator between the two numbers on the save row. */
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.29.0 — Both-mode boxes, Select all in the view bar
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Separator between the two numbers on the save-a-size row. */
+.lmt-saved-x {
+  color: var(--text-3);
+  font-size: calc(13px * var(--lmt-fs, 1));
+  padding: 0 1px;
+}
+
+/* Select all now sits with the view controls. */
+.lmt-view-bar .lmt-view-selectall {
+  margin: 0 2px 0 6px;
+  white-space: nowrap;
+}
+.lmt-view-bar .lmt-view-selectall span {
+  font-size: calc(13px * var(--lmt-fs, 1));
+}
+
+/* Both mode makes each chip wider (1200x900 rather than 1200px). */
+.lmt-radio-group.lmt-size-chips > label span { white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.33.0 — SUB-VIEW SPACING
+   .lmt-panel-inner is a flex column with a gap, so its direct children
+   space themselves. The Resize & compress tab puts its content one
+   level deeper, inside .lmt-subview, which had no styles at all — so
+   the Size panel, the search row and the grid stacked flush while
+   everything on other tabs had room. The gap cannot go on .lmt-subview
+   itself because the sub-views are toggled with inline display, so the
+   spacing goes on the children instead.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-subview > * + * { margin-top: 20px; }
+
+/* The view bar carried its own 12px. It is a child of the sub-view now,
+   so the rule above covers it and the two would otherwise add up. */
+.lmt-subview > .lmt-view-bar { margin-top: 20px; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.34.0 — AI BANNER ONLY WHEN IT SAYS SOMETHING
+   On Alt text & captions and on Titles the banner spent its whole life
+   reporting "connected", which the working Generate buttons already
+   show. initAiBanner() and initTitleAiBanner() add .lmt-ai-banner-ready
+   when there is an endpoint, so keying on that hides the banner in the
+   normal case and leaves it visible when no endpoint is set — which is
+   the one state worth interrupting someone for.
+
+   Scoped to the two IDs so the Lookit AI platform banner on Settings,
+   which never gets the ready class, keeps working as it does now.
+   ═══════════════════════════════════════════════════════════════════ */
+
+#lmt-ai-banner.lmt-ai-banner-ready,
+#lmt-ai-banner-title.lmt-ai-banner-ready {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v3.35.0 — COLLAPSE AN EMPTY FILTER LINE
+   With the hint text gone, the Titles filter line holds only the active
+   filter pill, which is hidden until a counter tile is clicked. The
+   existing :empty rule cannot catch that, because the pill element is
+   still in the markup. This collapses the row whenever nothing inside
+   it is visible. Browsers without :has() simply keep the row's margin,
+   which is a small gap rather than a broken layout.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lmt-filter-line:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* v3.39.0 — placeholder chip shown while a deferred usage count is fetched. */
+.lmt-usage-slot {
+  opacity: .55;
+  font-style: italic;
+}

@@ -228,6 +228,12 @@
     return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function usageChipHtml(id, count) {
+    return count > 0
+      ? `<span class="lmt-chip lmt-chip-use lmt-chip-clickable" onclick="window.lmtShowUsage(${id})" title="See where this image is used">📄 Used in ${count}</span>`
+      : `<span class="lmt-chip lmt-chip-muted" title="Not embedded in any post or page">Unused</span>`;
+  }
+
   /* Cross-tab "needs attention" chip row. Shows warnings for missing alt /
      auto title, and an image-usage count, so every grid reads as a worklist. */
   function attentionChips(img, opts) {
@@ -236,29 +242,104 @@
     if (!opts.skipAlt   && img.has_alt === false) chips.push('<span class="lmt-chip lmt-chip-warn">⚠ No alt</span>');
     if (!opts.skipTitle && img.is_auto === true)  chips.push('<span class="lmt-chip lmt-chip-warn">⚠ Auto title</span>');
     if (typeof img.used === 'number') {
-      chips.push(img.used > 0
-        ? `<span class="lmt-chip lmt-chip-use lmt-chip-clickable" onclick="window.lmtShowUsage(${img.id})" title="See where this image is used">📄 Used in ${img.used}</span>`
-        : `<span class="lmt-chip lmt-chip-muted" title="Not embedded in any post or page">Unused</span>`);
+      chips.push(usageChipHtml(img.id, img.used));
+    } else if (img.used === null) {
+      /* v3.39.0 — usage counts are fetched after the grid renders, so a slow
+         content-table scan no longer holds up the whole page. Placeholder
+         keeps the card height stable until fillUsageCounts fills it. */
+      chips.push(`<span class="lmt-chip lmt-chip-muted lmt-usage-slot" data-usage-id="${img.id}">Checking usage…</span>`);
     }
     return chips.length ? `<div class="lmt-chips">${chips.join('')}</div>` : '';
+  }
+
+  /* v3.39.3 — fills a placeholder chip in place using plain DOM properties.
+     Deliberately avoids rewriting the element from a markup string: the text is
+     set with textContent, so nothing here can be read as markup. */
+  function applyUsageChip(slot, id, count) {
+    if (count > 0) {
+      slot.className = 'lmt-chip lmt-chip-use lmt-chip-clickable';
+      slot.textContent = `📄 Used in ${count}`;
+      slot.title = 'See where this image is used';
+      slot.addEventListener('click', () => window.lmtShowUsage(id));
+    } else {
+      slot.className = 'lmt-chip lmt-chip-muted';
+      slot.textContent = 'Unused';
+      slot.title = 'Not embedded in any post or page';
+    }
+    slot.removeAttribute('data-usage-id');
+  }
+
+  /* v3.39.0 — ask for usage counts for the page that just rendered and drop
+     them into their placeholder chips. Failure is silent: the placeholders are
+     removed and the grid stays usable. */
+  function fillUsageCounts(items) {
+    const ids = (items || []).filter(i => i && i.used === null).map(i => i.id);
+    if (!ids.length) return;
+
+    const clearSlots = batch => batch.forEach(id => {
+      document.querySelectorAll(`.lmt-usage-slot[data-usage-id="${id}"]`).forEach(el => el.remove());
+    });
+
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const batch = ids.slice(offset, offset + 100);
+      const body = new URLSearchParams({ action: 'lmt_usage_counts', nonce: NONCE });
+      batch.forEach(id => body.append('ids[]', id));
+
+      fetch(AJAX, { method: 'POST', body }).then(r => r.json()).then(res => {
+        if (!res || !res.success) { clearSlots(batch); return; }
+        const counts = res.data.counts || {};
+        batch.forEach(id => {
+          const slot = document.querySelector(`.lmt-usage-slot[data-usage-id="${id}"]`);
+          if (!slot) return;
+          const c = counts[id];
+          if (typeof c !== 'number') { slot.remove(); return; }
+          applyUsageChip(slot, id, c);
+        });
+      }).catch(() => clearSlots(batch));
+    }
   }
 
   /* Rough resize savings estimate. File size for photos scales ~with pixel
      count, so we scale by the area ratio. Labelled "~" — it's an estimate.
      We show only the savings at the target size (not before/after file sizes). */
+  /* v3.28.0 — Resize target is a mode plus one or two numbers:
+       { mode: 'w',  w: 1200 }            cap the width, height follows
+       { mode: 'h',  h: 1200 }            cap the height, width follows
+       { mode: 'wh', w: 1200, h: 800 }    fit inside the box, aspect kept
+     lmtFitScale returns the scale factor, never above 1 (no upscaling). */
+  function lmtFitScale(w, h, t) {
+    if (!w || !h || !t) return 1;
+    let scale = 1;
+    if (t.mode === 'h')       scale = t.h ? t.h / h : 1;
+    else if (t.mode === 'wh') scale = Math.min(t.w ? t.w / w : 1, t.h ? t.h / h : 1);
+    else                      scale = t.w ? t.w / w : 1;
+    return Math.min(1, scale);
+  }
+
+  function lmtTargetLabel(t) {
+    if (!t) return '—';
+    if (t.mode === 'h')  return `${t.h}px tall`;
+    if (t.mode === 'wh') return `${t.w}×${t.h}px`;
+    return `${t.w}px wide`;
+  }
+
   function resizeEstimate(img, target) {
-    const longest = Math.max(img.width || 0, img.height || 0);
-    if (!longest || !img.filesize) return null;
-    if (!target || longest <= target) {
-      return { changed: false, saved: 0, text: `No change — already ≤ ${target || '—'}px` };
+    const w = img.width || 0, h = img.height || 0;
+    if (!w || !h || !img.filesize) return null;
+    const scale = lmtFitScale(w, h, target);
+    if (scale >= 1) {
+      // Name the dimension that was measured, so "no change" is never a mystery.
+      const now = target.mode === 'h'  ? `${h}px tall`
+                : target.mode === 'wh' ? `${w}\u00d7${h}`
+                :                        `${w}px wide`;
+      return { changed: false, saved: 0, text: `No change — ${now} already fits ${lmtTargetLabel(target)}` };
     }
-    const ratio    = (target / longest) * (target / longest);
-    const estBytes = Math.round(img.filesize * ratio);
+    const estBytes = Math.round(img.filesize * scale * scale);
     const saved    = Math.max(0, img.filesize - estBytes);
     return {
       changed: true,
       saved,
-      text: `↓ Save ~${formatBytes(saved)} at ${target}px`
+      text: `↓ Save ~${formatBytes(saved)} at ${Math.round(w * scale)}×${Math.round(h * scale)}`
     };
   }
 
@@ -369,8 +450,24 @@
   (function restoreTab() {
     // v3.21.0 — an explicit ?tab= in the URL wins over the remembered tab.
     // This is how the old settings URL lands on the Settings panel.
-    const fromUrl = document.getElementById('lmt-root')?.dataset.initialTab || null;
-    if (fromUrl && activateTab(fromUrl, false)) return;
+    const root = document.getElementById('lmt-root');
+    const fromUrl = root?.dataset.initialTab || null;
+    const filterFromUrl = root?.dataset.initialFilter || null;
+    if (fromUrl && activateTab(fromUrl, false)) {
+      /* The tool's filter setter is wired further down this file, so instead of
+         calling it we set the <select> the loader already reads. The tool's
+         first load then comes back filtered — no second request — and the tiles
+         are synced once the setters exist. */
+      if (filterFromUrl) {
+        const sel = document.getElementById(fromUrl + '-filter');
+        if (sel && sel.querySelector('[value="' + filterFromUrl + '"]')) {
+          sel.value = filterFromUrl;
+          window.LMTDeepFilter = { tab: fromUrl, filter: filterFromUrl };
+          setTimeout(function () { window.lmtSyncTiles?.(fromUrl, filterFromUrl); }, 0);
+        }
+      }
+      return;
+    }
 
     let saved = null;
     try { saved = localStorage.getItem(TAB_KEY); } catch (e) { /* private mode */ }
@@ -392,9 +489,23 @@
   }
   window.lmtActiveTabName = lmtActiveTabName;
 
-  /* v3.23.0 — the All tasks cards are shortcuts to the tools, nothing more. */
+  /* v3.23.0 — the All tasks cards are shortcuts to the tools.
+     v3.36.0 — a card may also carry data-goto-filter, in which case the tool
+     opens with that slice already selected. The filter is applied after the
+     tab switch so the grid reloads against the right filter, not twice. */
+  function lmtApplyToolFilter(tab, filter) {
+    if (!filter) return;
+    if (tab === 'alt'   && window.lmtAltFilter)   window.lmtAltFilter(filter);
+    if (tab === 'title' && window.lmtTitleFilter) window.lmtTitleFilter(filter);
+  }
+  window.lmtApplyToolFilter = lmtApplyToolFilter;
+
   document.querySelectorAll('[data-goto-tab]').forEach(function (card) {
-    card.addEventListener('click', function () { activateTab(card.dataset.gotoTab, true); });
+    card.addEventListener('click', function () {
+      const tab = card.dataset.gotoTab;
+      activateTab(tab, true);
+      lmtApplyToolFilter(tab, card.dataset.gotoFilter);
+    });
   });
 
   /* Each card says how much work is waiting, and where you left off. The
@@ -412,15 +523,34 @@
 
     if (part === 'alt' && d) {
       const missing = d.missing || 0;
+      const misCap  = typeof d.missing_caption === 'number'
+        ? d.missing_caption : Math.max(0, (d.total || 0) - (d.has_caption || 0));
+      const misDesc = typeof d.missing_desc === 'number'
+        ? d.missing_desc : Math.max(0, (d.total || 0) - (d.has_desc || 0));
+
       set('lmt-home-stat-alt', (missing
         ? missing + (missing === 1 ? ' image has no alt text' : ' images have none')
         : 'Every image has alt text') + ' &rarr;' + resume('alt'));
+      set('lmt-home-stat-cap', (misCap
+        ? misCap + (misCap === 1 ? ' image has no caption' : ' images have none')
+        : 'Every image has a caption') + ' &rarr;');
+      set('lmt-home-stat-desc', (misDesc
+        ? misDesc + (misDesc === 1 ? ' image has no description' : ' images have none')
+        : 'Every image has a description') + ' &rarr;');
       set('lmt-home-stat-mlr', (d.total || 0) + ' images in your library &rarr;' + resume('mlr'));
+
       set('lmt-home-n-total', d.total || 0);
       set('lmt-home-n-alt', d.has_alt || 0);
       set('lmt-home-n-missing', missing);
+      set('lmt-home-n-cap', misCap);
+      set('lmt-home-n-cap-have', d.has_caption || 0);
+      set('lmt-home-n-desc', misDesc);
+      set('lmt-home-n-desc-have', d.has_desc || 0);
+      /* v3.37.0 — the strip renders straight away with placeholders now that
+         it sits above the cards, so there is no reveal to do. Kept as a no-op
+         guard for anyone landing here from an older cached page. */
       const wrap = document.getElementById('lmt-home-stats');
-      if (wrap) wrap.hidden = false;
+      if (wrap && wrap.hidden) wrap.hidden = false;
       const lede = document.getElementById('lmt-home-lede');
       if (lede && d.total) {
         lede.textContent = d.total + ' images in your library. Pick a job below — you will come back to whatever page you were on.';
@@ -433,6 +563,7 @@
         ? auto + (auto === 1 ? ' title is still a filename' : ' titles are still filenames')
         : 'Every image has a real title') + ' &rarr;' + resume('title'));
       set('lmt-home-n-titles', auto);
+      set('lmt-home-n-titles-custom', d.custom || 0);
     }
   };
 
@@ -876,9 +1007,33 @@
 
   function getMlrSize() {
     const checked = document.querySelector('input[name="mlr_size"]:checked');
-    if (!checked) return 1200;
-    if (checked.value==='custom') { const v=parseInt(document.getElementById('mlr-custom-px')?.value,10); return (v>=16&&v<=8000)?v:1200; }
-    return parseInt(checked.value,10);
+    const v = parseInt(checked?.value, 10);
+    return (v >= 16 && v <= 8000) ? v : 1200;
+  }
+
+  /* v3.31.0 — Resize & compress has one behaviour: fit each image inside a
+     width x height box. The Width / Height / Both switch has gone, so this
+     always reports 'wh'. lmtFitScale() still understands 'w' and 'h', which
+     the upload-view resizer and any future mode can use. */
+  function getMlrMode() { return 'wh'; }
+
+  /* v3.30.0 — In Both mode a preset is a landscape box at 4:3, so the numbers
+     pair sensibly (1200x900, 800x600) instead of every width being married to
+     one shared height. A saved box carries its own height and overrides this. */
+  const MLR_BOX_RATIO = 3 / 4;
+  function mlrBoxHeight(w) { return Math.max(1, Math.round(w * MLR_BOX_RATIO)); }
+
+  function getMlrTarget() {
+    const mode = getMlrMode();
+    const n    = getMlrSize();
+    if (mode === 'h') return { mode: 'h', h: n };
+    if (mode === 'wh') {
+      const checked = document.querySelector('input[name="mlr_size"]:checked');
+      const savedH  = parseInt(checked?.dataset.h, 10);
+      const h = (savedH >= 16 && savedH <= 8000) ? savedH : mlrBoxHeight(n);
+      return { mode: 'wh', w: n, h };
+    }
+    return { mode: 'w', w: n };
   }
 
   function updateMlrBulkBtn() {
@@ -892,8 +1047,7 @@
   function mlrCardHtml(img) {
     const size = img.width && img.height ? `${img.width}×${img.height}` : '—';
     const fs   = formatBytes(img.filesize);
-    const longest = Math.max(img.width || 0, img.height || 0);
-    const est  = resizeEstimate(img, getMlrSize());
+    const est  = resizeEstimate(img, getMlrTarget());
     const estClass = est && est.changed ? ' lmt-est-save' : '';
     return `
         <div class="lmt-img-card${img.has_backup ? ' lmt-card-done' : ''}" id="mlr-card-${img.id}">
@@ -907,7 +1061,7 @@
             <div class="lmt-img-filename" title="${escHtml(img.filename)}">${escHtml(img.filename)}</div>
             <div class="lmt-img-dims" id="mlr-dims-${img.id}">${size} &nbsp;·&nbsp; ${fs}</div>
             ${attentionChips(img)}
-            <div class="lmt-resize-est${estClass}" id="mlr-est-${img.id}" data-bytes="${img.filesize || 0}" data-longest="${longest}">${est ? escHtml(est.text) : ''}</div>
+            <div class="lmt-resize-est${estClass}" id="mlr-est-${img.id}" data-bytes="${img.filesize || 0}" data-w="${img.width || 0}" data-h="${img.height || 0}">${est ? escHtml(est.text) : ''}</div>
             ${img.has_backup ? `<button class="lmt-restore-btn" onclick="window.mlrRestore(${img.id})">↩ Restore Original</button>` : ''}
             <div class="lmt-card-actions">
               <a class="lmt-edit-btn" href="${escHtml(window.lmtDetailUrl(img, 'mlr', mlrPage))}" title="Open this image in Media Master">
@@ -921,12 +1075,13 @@
   /* Recompute per-card resize estimates + the selection total. Called on
      render, target change, and selection change. */
   function updateResizeEstimates() {
-    const target = getMlrSize();
+    const target = getMlrTarget();
     let selBytes = 0, selSaved = 0, selCount = 0;
     document.querySelectorAll('.lmt-resize-est').forEach(el => {
-      const bytes   = parseInt(el.dataset.bytes, 10) || 0;
-      const longest = parseInt(el.dataset.longest, 10) || 0;
-      const est = resizeEstimate({ width: longest, height: 0, filesize: bytes }, target);
+      const bytes = parseInt(el.dataset.bytes, 10) || 0;
+      const w     = parseInt(el.dataset.w, 10) || 0;
+      const h     = parseInt(el.dataset.h, 10) || 0;
+      const est = resizeEstimate({ width: w, height: h, filesize: bytes }, target);
       if (est) el.textContent = est.text;
       el.classList.toggle('lmt-est-save', !!(est && est.changed));
       const id  = parseInt(el.id.replace('mlr-est-', ''), 10);
@@ -949,13 +1104,16 @@
   function updateRunSummary() {
     const el = document.getElementById('mlr-run-summary');
     if (!el) return;
-    const width   = getMlrSize();
+    const target  = getMlrTarget();
+    const fit     = target.mode === 'wh' ? `fitted inside ${target.w}×${target.h}px`
+                  : target.mode === 'h'  ? `${target.h}px tall`
+                  :                        `${target.w}px wide`;
     const quality = document.getElementById('mlr-quality')?.value || '82';
     const webp    = document.getElementById('mlr-output-fmt')?.value === 'webp';
     const backup  = !!document.getElementById('mlr-backup')?.checked;
     el.textContent = webp
-      ? `Creating a new WebP copy of each image at ${width}px wide, quality ${quality}. Originals are left untouched and URLs do not change.`
-      : `Resizing to ${width}px wide, keeping the original format at quality ${quality}, overwriting in place. `
+      ? `Creating a new WebP copy of each image at ${fit}, quality ${quality}. Originals are left untouched and URLs do not change.`
+      : `Resizing to ${fit}, keeping the original format at quality ${quality}, overwriting in place. `
         + (backup ? 'Originals are backed up first and can be restored per image.'
                   : 'No backup — originals cannot be restored afterwards.');
     el.classList.toggle('lmt-run-summary-warn', !webp && !backup);
@@ -1000,6 +1158,7 @@
     const label = document.getElementById('mlr-count-label');
     if (label) label.textContent = `${d.total} image(s) — showing ${mlrLoaded}`;
 
+    fillUsageCounts(d.items);   // v3.39.0 — deferred usage counts
     renderLoadMore('mlr-loadmore', mlrPage, mlrTotalPages, mlrLoaded, d.total, n => mlrLoadImages(n, true));
     window.lmtHighlightReturn('mlr');   // v3.23.0
     setMlrStatus('');
@@ -1036,9 +1195,33 @@
   });
 
   document.querySelectorAll('input[name="mlr_size"]').forEach(r => {
-    r.addEventListener('change', () => { const cpx=document.getElementById('mlr-custom-px'); if(cpx) cpx.disabled=(r.value!=='custom'); updateResizeEstimates(); });
+    r.addEventListener('change', updateResizeEstimates);
   });
-  document.getElementById('mlr-custom-px')?.addEventListener('input', updateResizeEstimates);
+
+  /* v3.28.0 — Width / Height / Both. The chips stay the same in every mode;
+     only what the number means changes. "Both" reveals a second field and
+     fits each image inside the box, never stretching it. */
+  /* v3.29.0 — In Both mode a preset is a box, not a single number, so each
+     chip shows the box it will produce (e.g. 1200x900). Width and Height mode
+     put the original label back. */
+  function relabelSizeChips(mode) {
+    document.querySelectorAll('.lmt-size-chips > label').forEach(lab => {
+      const radio = lab.querySelector('input[name="mlr_size"]');
+      const span  = lab.querySelector('span');
+      if (!radio || !span || radio.value === 'custom') return;
+      if (span.dataset.base === undefined) span.dataset.base = span.textContent;
+      const n = parseInt(radio.value, 10);
+      span.textContent = (mode === 'wh' && n)
+        ? `${n}\u00d7${mlrBoxHeight(n)}`
+        : span.dataset.base;
+    });
+  }
+
+  function applyMlrMode(mode) {
+    relabelSizeChips(mode);
+    updateResizeEstimates();
+  }
+  applyMlrMode(getMlrMode());
 
   document.getElementById('mlr-quality')?.addEventListener('input', function() {
     const b = document.getElementById('mlr-quality-bubble');
@@ -1075,6 +1258,13 @@
   }
   function setSavedSizes(arr) { localStorage.setItem(SAVED_SIZES_KEY, JSON.stringify(arr)); }
 
+  /* A saved entry shows as a box whenever Both is the active mode: its own
+     height if it has one, otherwise the 4:3 box its width implies. */
+  function savedLabel(s) {
+    if (getMlrMode() === 'wh') return `${s.px}\u00d7${s.h || mlrBoxHeight(s.px)}`;
+    return s.h ? `${s.px}\u00d7${s.h}` : `${s.px}px`;
+  }
+
   function renderSavedSizes() {
     const wrap = document.getElementById('mlr-saved-sizes');
     if (!wrap) return;
@@ -1082,15 +1272,15 @@
     wrap.innerHTML = sizes.map((s, i) => `
       <label class="lmt-saved-row" draggable="true" data-idx="${i}">
         <span class="lmt-saved-handle" title="Drag to reorder">⠿</span>
-        <input type="radio" name="mlr_size" value="${s.px}">
+        <input type="radio" name="mlr_size" value="${s.px}" data-h="${s.h || ''}">
         <span>${escHtml(s.name)}</span>
-        <em>${s.px}px</em>
+        <em>${savedLabel(s)}</em>
         <button type="button" class="lmt-saved-del" data-idx="${i}" title="Remove this size" aria-label="Remove">&times;</button>
       </label>`).join('');
 
     wrap.querySelectorAll('input[name="mlr_size"]').forEach(r => {
       r.addEventListener('change', () => {
-        const cpx = document.getElementById('mlr-custom-px'); if (cpx) cpx.disabled = true;
+        relabelSizeChips(getMlrMode());
         updateResizeEstimates();
       });
     });
@@ -1122,16 +1312,21 @@
   document.getElementById('mlr-saved-add-btn')?.addEventListener('click', () => {
     const nameEl = document.getElementById('mlr-saved-name');
     const pxEl   = document.getElementById('mlr-saved-px');
+    const hEl  = document.getElementById('mlr-saved-h');
     const name = (nameEl?.value || '').trim();
     const px   = parseInt(pxEl?.value, 10);
     if (!name) { alert('Give the size a name first.'); return; }
     if (!(px >= 16 && px <= 8000)) { alert('Enter a pixel size between 16 and 8000.'); return; }
+    const h = parseInt(hEl?.value, 10);
+    if (!(h >= 16 && h <= 8000)) { alert('Enter a height between 16 and 8000.'); return; }
     const arr = getSavedSizes();
-    arr.push({ name, px });
+    arr.push({ name, px, h });
     setSavedSizes(arr);
     if (nameEl) nameEl.value = '';
     if (pxEl)   pxEl.value = '';
+    if (hEl)    hEl.value = '';
     renderSavedSizes();
+    relabelSizeChips(getMlrMode());
   });
   renderSavedSizes();
 
@@ -1139,15 +1334,18 @@
   mlrBulkBtn?.addEventListener('click', async function() {
     if (mlrRunning || mlrSelected.size===0) return;
     const ids     = [...mlrSelected];
-    const target  = getMlrSize();
+    const target  = getMlrTarget();
     const quality = parseInt(document.getElementById('mlr-quality')?.value||'82',10);
     const backup  = document.getElementById('mlr-backup')?.checked ? '1' : '0';
     const outFmt  = document.getElementById('mlr-output-fmt')?.value || 'keep';
     const toWebp  = outFmt === 'webp';
 
+    const fitMsg = target.mode === 'wh' ? `fitted inside ${target.w}\u00d7${target.h}px`
+                 : target.mode === 'h'  ? `${target.h}px tall`
+                 :                        `${target.w}px wide`;
     const confirmMsg = toWebp
-      ? `Create a WebP copy of ${ids.length} image(s) at up to ${target}px?\n\nThis adds a new .webp file to your media library for each one. The originals are left unchanged.`
-      : `Resize ${ids.length} image(s) to ${target}px longest edge?\n\nThis overwrites files on the server. ${backup==='1'?'Originals will be backed up.':'NO BACKUP will be made.'}`;
+      ? `Create a WebP copy of ${ids.length} image(s) at ${fitMsg}?\n\nThis adds a new .webp file to your media library for each one. The originals are left unchanged.`
+      : `Resize ${ids.length} image(s) to ${fitMsg}?\n\nThis overwrites files on the server. ${backup==='1'?'Originals will be backed up.':'NO BACKUP will be made.'}`;
     if (!confirm(confirmMsg)) return;
 
     mlrRunning=true; mlrStop=false;
@@ -1191,19 +1389,18 @@
         setP(`${toWebp ? 'Converting' : 'Resizing'} image ${done+1}/${ids.length}…`);
         const bitmap = await createImageBitmap(await (await fetch(dataUri)).blob());
 
-        const longest = Math.max(bitmap.width, bitmap.height);
-        if (!toWebp && longest <= target) {
-          // Keep-format mode: already small enough — skip without error
+        // v3.28.0 — one scale factor for all three modes, capped at 1 so an
+        // image is never enlarged to meet the target.
+        const scale = lmtFitScale(bitmap.width, bitmap.height, target);
+        if (!toWebp && scale >= 1) {
+          // Keep-format mode: already within the target — skip without error
           const dimsEl = document.getElementById(`mlr-dims-${id}`);
           if(dimsEl) dimsEl.textContent += ' (skipped — already small)';
           done++; setP(); continue;
         }
 
-        // WebP mode never upscales: if it's already ≤ target, keep original dims and just convert.
-        const dims = (longest > target)
-          ? computeDims(bitmap.width, bitmap.height, target)
-          : { w: bitmap.width, h: bitmap.height };
-        const nw = dims.w, nh = dims.h;
+        const nw = Math.max(1, Math.round(bitmap.width  * scale));
+        const nh = Math.max(1, Math.round(bitmap.height * scale));
         const canvas = document.createElement('canvas');
         canvas.width=nw; canvas.height=nh;
         const ctx = canvas.getContext('2d');
@@ -1228,8 +1425,8 @@
         // ── Step 4: Save — overwrite original, or create a new WebP copy ──
         setP(`Saving image ${done+1}/${ids.length} to server…`);
         const saveRes = toWebp
-          ? await post('lmt_mlr_save_webp', { id, data: outDataUri })
-          : await post('lmt_mlr_save', { id, data: outDataUri, backup });
+          ? await post('lmt_mlr_save_webp', { id, data: outDataUri, max_width: target.w, max_height: target.h })
+          : await post('lmt_mlr_save', { id, data: outDataUri, backup, max_width: target.w, max_height: target.h });
 
         if (saveRes.success) {
           ok++;
@@ -1371,7 +1568,9 @@
           <div class="lmt-img-thumb-wrap">
             <input type="checkbox" class="lmt-img-select" id="alt-chk-${img.id}" data-id="${img.id}" onchange="window.altToggleSelect(${img.id},this.checked)">
             ${badge}
-            ${img.thumb?`<img class="lmt-img-thumb" src="${escHtml(img.thumb)}" alt="" loading="lazy">`:'<div class="lmt-img-thumb" style="background:var(--s3)"></div>'}
+            <a class="lmt-thumb-link" href="${escHtml(window.lmtDetailUrl(img, 'alt', altPage))}" title="Open ${escHtml(img.filename)}">
+              ${img.thumb?`<img class="lmt-img-thumb" src="${escHtml(img.thumb)}" alt="" loading="lazy">`:'<div class="lmt-img-thumb" style="background:var(--s3)"></div>'}
+            </a>
           </div>
           <div class="lmt-img-body">
             <div class="lmt-img-filename" title="${escHtml(img.filename)}">${escHtml(img.filename)}</div>
@@ -1492,6 +1691,7 @@
       const label = document.getElementById('alt-count-label');
       if(label) label.textContent = `${d.total} image(s) — showing ${altLoaded}`;
 
+      fillUsageCounts(d.items);   // v3.39.0 — deferred usage counts
       renderLoadMore('alt-loadmore', altPage, altTotalPages, altLoaded, d.total, n=>loadAltPage(n, true));
       window.lmtHighlightReturn('alt');   // v3.23.0
       const selAll = document.getElementById('alt-select-all');
@@ -1918,7 +2118,9 @@
           <div class="lmt-img-thumb-wrap">
             <input type="checkbox" class="lmt-img-select" id="title-chk-${img.id}" data-id="${img.id}" onchange="window.titleToggleSelect(${img.id},this.checked)">
             ${badge}
-            ${img.thumb?`<img class="lmt-img-thumb" src="${escHtml(img.thumb)}" alt="" loading="lazy">`:'<div class="lmt-img-thumb" style="background:var(--s3)"></div>'}
+            <a class="lmt-thumb-link" href="${escHtml(window.lmtDetailUrl(img, 'title', titlePage))}" title="Open ${escHtml(img.filename)}">
+              ${img.thumb?`<img class="lmt-img-thumb" src="${escHtml(img.thumb)}" alt="" loading="lazy">`:'<div class="lmt-img-thumb" style="background:var(--s3)"></div>'}
+            </a>
           </div>
           <div class="lmt-img-body">
             <div class="lmt-img-filename" title="${escHtml(img.filename)}">${escHtml(img.filename)}</div>
@@ -1969,6 +2171,7 @@
       const label = document.getElementById('title-count-label');
       if (label) label.textContent = `${d.total} image(s) — showing ${titleLoaded}`;
 
+      fillUsageCounts(d.items);   // v3.39.0 — deferred usage counts
       renderLoadMore('title-loadmore', titlePage, titleTotalPages, titleLoaded, d.total, n => loadTitlePage(n, true));
       window.lmtHighlightReturn('title'); // v3.23.0
       const selAll = document.getElementById('title-select-all');
@@ -2850,6 +3053,9 @@
     const returnedTo   = lmtActiveTabName();
     const returnedPage = window.LMTReturn.paged;
     const startPage = function (tool) {
+      // v3.36.0 — a filtered deep link always starts at page 1; the remembered
+      // page belongs to a different, usually larger, result set.
+      if (window.LMTDeepFilter && window.LMTDeepFilter.tab === tool) return 1;
       if (returnedPage > 1 && returnedTo === tool) return returnedPage;
       return window.LMTPages.recall(tool);
     };
