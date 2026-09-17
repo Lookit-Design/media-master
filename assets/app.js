@@ -198,18 +198,38 @@
      TAB SWITCHER
   ══════════════════════════════════════════════════════ */
 
+  const TAB_KEY = 'lmt_tab';
   const tabs    = document.querySelectorAll('.lmt-tab');
   const panels  = document.querySelectorAll('.lmt-panel');
 
+  function activateTab(name, remember) {
+    const tab   = document.querySelector('.lmt-tab[data-tab="' + name + '"]');
+    const panel = document.getElementById('lmt-panel-' + name);
+    if (!tab || !panel) return false;
+
+    tabs.forEach(t => t.classList.remove('active'));
+    panels.forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    panel.classList.add('active');
+
+    if (remember) {
+      try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* private mode */ }
+    }
+    return true;
+  }
+
   tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      panels.forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      const panelId = 'lmt-panel-' + tab.dataset.tab;
-      document.getElementById(panelId)?.classList.add('active');
-    });
+    tab.addEventListener('click', () => activateTab(tab.dataset.tab, true));
   });
+
+  /* Reopen on whichever tab was last used. A saved tab that no longer
+     exists (renamed or removed in an update) just falls through to the
+     default already marked active in the markup. */
+  (function restoreTab() {
+    let saved = null;
+    try { saved = localStorage.getItem(TAB_KEY); } catch (e) { /* private mode */ }
+    if (saved) activateTab(saved, false);
+  })();
 
   /* ══════════════════════════════════════════════════════
      COMBINED TAB — UPLOAD ↔ LIBRARY SUB-VIEW TOGGLE
@@ -226,7 +246,7 @@
     if (libraryView) libraryView.style.display = show ? 'none' : '';
     if (uploadView)  uploadView.style.display  = show ? '' : 'none';
   }
-  document.getElementById('mlr-btn-upload-view')?.addEventListener('click', () => showUploadView(true));
+  document.getElementById('mlr-btn-upload-view')?.addEventListener('click', () => document.querySelector('.lmt-tab[data-tab="import"]')?.click());
   document.getElementById('lkir-back-btn')?.addEventListener('click', () => showUploadView(false));
 
   /* Dismissible resize warning — stays hidden across refreshes once closed.
@@ -1855,6 +1875,508 @@
     el.innerHTML=html;
   }
 
+  /* ══════════════════════════════════════════════════════
+     TAB 4 — EXPORT  (v3.17.0)
+     Filters drive a count/size scan; Build ZIP starts a server-side
+     job and walks it in batches until the archive is complete.
+  ══════════════════════════════════════════════════════ */
+
+  const expType     = document.getElementById('exp-type');
+  const expRange    = document.getElementById('exp-range');
+  const expAttached = document.getElementById('exp-attached');
+  const expSearch   = document.getElementById('exp-search');
+  const expFolders  = document.getElementById('exp-folders');
+  const expSplit    = document.getElementById('exp-split');
+  const expOrig     = document.getElementById('exp-originals');
+  const expCsv      = document.getElementById('exp-csv');
+  const expCount    = document.getElementById('exp-count');
+  const expSize     = document.getElementById('exp-size');
+  const expStatus   = document.getElementById('exp-status');
+  const expBuildBtn = document.getElementById('exp-build-btn');
+  const expStopBtn  = document.getElementById('exp-stop-btn');
+  const expJobsEl   = document.getElementById('exp-jobs');
+  const expWrap     = document.getElementById('exp-progress-wrap');
+  const expFill     = document.getElementById('exp-progress-fill');
+  const expPct      = document.getElementById('exp-progress-pct');
+  const expCnt      = document.getElementById('exp-progress-count');
+  const expLabel    = document.getElementById('exp-progress-label');
+
+  let expScanTimer = null;
+  let expAborted   = false;
+  let expRunning   = false;
+
+  function expBigBytes(b) {
+    if (!b) return '0 B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+    if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
+    return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+
+  function expFilters() {
+    return {
+      type:      expType ? expType.value : 'all',
+      range:     expRange ? expRange.value : 'all',
+      attached:  expAttached ? expAttached.value : 'any',
+      search:    expSearch ? expSearch.value : '',
+      folders:   expFolders ? expFolders.value : 'uploads',
+      split:     expSplit ? expSplit.value : '0',
+      originals: (expOrig && expOrig.checked) ? '1' : '',
+      csv:       (expCsv && expCsv.checked) ? '1' : ''
+    };
+  }
+
+  /* Rebuild the Date range options when the years available for this media
+     type change. Rebuilds only on an actual change, so an open dropdown
+     isn't yanked out from under you. */
+  function expSyncYears(years) {
+    if (!expRange || !Array.isArray(years)) return;
+    const signature = years.join(',');
+    if (expRange.dataset.years === signature) return;
+    const current = expRange.value;
+    expRange.dataset.years = signature;
+    expRange.innerHTML =
+      '<option value="all">All time</option>' +
+      '<option value="30">Last 30 days</option>' +
+      '<option value="365">Last 12 months</option>' +
+      years.map(y => '<option value="year:' + y + '">' + y + '</option>').join('');
+    expRange.value = Array.from(expRange.options).some(o => o.value === current) ? current : 'all';
+  }
+
+  function expScan() {
+    if (!expCount) return;
+    expCount.textContent = 'Counting…';
+    expSize.textContent  = '—';
+    post('lmt_export_scan', expFilters()).then(r => {
+      if (!r || !r.success) { expCount.textContent = 'Could not count files'; return; }
+      expSyncYears(r.data.years);
+      const n = r.data.count;
+      expCount.textContent = n.toLocaleString() + (n === 1 ? ' file' : ' files');
+      expSize.textContent  = expBigBytes(r.data.bytes);
+      if (expBuildBtn) expBuildBtn.disabled = (n === 0);
+    }).catch(() => { expCount.textContent = 'Could not count files'; });
+  }
+
+  function expScanSoon() {
+    clearTimeout(expScanTimer);
+    expScanTimer = setTimeout(expScan, 350);
+  }
+
+  [expType, expRange, expAttached].forEach(el => el && el.addEventListener('change', expScan));
+  expSearch && expSearch.addEventListener('input', expScanSoon);
+  document.getElementById('exp-refresh')?.addEventListener('click', expScan);
+
+  /* Explain whichever folder scheme is selected, in plain terms. */
+  const EXP_FOLDER_NOTES = {
+    parent:  'Files land in a folder named after the page or post they were uploaded to, plus its ID (for example <code>free-hep-b-screening-korean-community-services-8842/</code>). Anything unattached goes in <code>_unattached/</code>.',
+    uploads: 'Mirrors the year and month folders from wp-content/uploads, so the archive drops straight into another install.',
+    flat:    'Every file sits in the root of the ZIP. Simplest to browse, but no clue where anything belonged.',
+    type:    'Sorted into <code>images/</code>, <code>audio/</code>, <code>videos/</code>, <code>documents/</code>, <code>archives/</code> and <code>other/</code>.'
+  };
+  expFolders && expFolders.addEventListener('change', () => {
+    const note = document.getElementById('exp-folders-note');
+    if (note) note.innerHTML = EXP_FOLDER_NOTES[expFolders.value] || '';
+  });
+
+  /* ── Job list ── */
+
+  function expRenderJobs(jobs) {
+    if (!expJobsEl) return;
+    if (!jobs.length) {
+      expJobsEl.innerHTML = '<div class="lmt-grid-empty">No exports yet. Build one above.</div>';
+      return;
+    }
+    expJobsEl.innerHTML = jobs.map(j => {
+      const parts = j.parts.map(p =>
+        `<a class="lmt-btn lmt-btn-sm" href="${escHtml(p.url)}">⬇ ${j.parts.length > 1 ? 'Part ' + p.n : 'Download'} <span class="lmt-x-jobmeta" style="margin:0 0 0 6px">${expBigBytes(p.bytes)}</span></a>`
+      ).join('');
+      const csv = j.csv_url ? `<a class="lmt-btn lmt-btn-sm" href="${escHtml(j.csv_url)}">⬇ CSV</a>` : '';
+      const skipped = j.skipped ? ` · ${j.skipped} missing file${j.skipped === 1 ? '' : 's'} skipped` : '';
+      return `<div class="lmt-x-job">
+        <div class="lmt-x-job-main">
+          <span class="lmt-img-status-badge lmt-badge-done">Ready</span>
+          <div>
+            <div class="lmt-x-fname">${escHtml(j.label)} — ${j.total.toLocaleString()} files</div>
+            <div class="lmt-x-jobmeta">${expBigBytes(j.bytes)} · ${j.parts.length} file${j.parts.length === 1 ? '' : 's'} · built ${escHtml(j.created_h)} · expires ${escHtml(j.expires_h)}${skipped}</div>
+          </div>
+        </div>
+        <div class="lmt-x-job-actions">${parts}${csv}
+          <button type="button" class="lmt-btn lmt-btn-sm lmt-btn-danger" data-exp-del="${escHtml(j.id)}">Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function expLoadJobs() {
+    if (!expJobsEl) return;
+    post('lmt_export_jobs').then(r => {
+      if (r && r.success) expRenderJobs(r.data.jobs || []);
+    }).catch(() => {});
+  }
+
+  expJobsEl && expJobsEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-exp-del]');
+    if (!btn) return;
+    if (!window.confirm('Delete this export? The ZIP will be removed from the server.')) return;
+    btn.disabled = true;
+    post('lmt_export_delete', { job: btn.dataset.expDel }).then(expLoadJobs);
+  });
+
+  /* ── Build ── */
+
+  function expSetProgress(done, total, bytes) {
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    expFill.style.width = pct + '%';
+    expPct.textContent  = pct + '%';
+    expCnt.textContent  = done.toLocaleString() + ' of ' + total.toLocaleString() + ' files · ' + expBigBytes(bytes) + ' written';
+  }
+
+  function expFinish(msg, ok) {
+    expRunning = false;
+    expBuildBtn.disabled = false;
+    expStopBtn.style.display = 'none';
+    expLabel.textContent = msg;
+    expStatus.textContent = ok ? 'Your archive is in Recent exports below.' : 'Keep this tab open while the archive builds.';
+    expLoadJobs();
+  }
+
+  function expRunBatch(job, total) {
+    if (expAborted) { expFinish('Stopped. The partial archive is still listed below.', false); return; }
+
+    post('lmt_export_batch', { job }).then(r => {
+      if (!r || !r.success) {
+        expFinish('✗ ' + ((r && r.data && r.data.message) || 'The build failed.'), false);
+        return;
+      }
+      const d = r.data;
+      expSetProgress(d.done, d.total, d.bytes);
+      if (d.parts > 1) expLabel.textContent = 'Packaging files… (part ' + d.parts + ')';
+
+      if (d.complete) {
+        expLabel.textContent = 'Writing the manifest…';
+        post('lmt_export_finalize', { job }).then(() => {
+          expFill.style.width = '100%';
+          expPct.textContent = '100%';
+          expFinish('✓ Export ready', true);
+        });
+      } else {
+        expRunBatch(job, total);
+      }
+    }).catch(() => expFinish('✗ The connection dropped mid-build.', false));
+  }
+
+  expBuildBtn && expBuildBtn.addEventListener('click', () => {
+    if (expRunning) return;
+    expRunning = true;
+    expAborted = false;
+    expBuildBtn.disabled = true;
+    expStopBtn.style.display = '';
+    expWrap.classList.remove('lmt-hidden');
+    expLabel.textContent = 'Gathering files…';
+    expSetProgress(0, 1, 0);
+
+    post('lmt_export_start', expFilters()).then(r => {
+      if (!r || !r.success) {
+        expFinish('✗ ' + ((r && r.data && r.data.message) || 'Could not start the export.'), false);
+        return;
+      }
+      expLabel.textContent = 'Packaging files…';
+      expSetProgress(0, r.data.total, 0);
+      expRunBatch(r.data.job, r.data.total);
+    }).catch(() => expFinish('✗ Could not start the export.', false));
+  });
+
+  expStopBtn && expStopBtn.addEventListener('click', () => {
+    expAborted = true;
+    expStopBtn.disabled = true;
+    expLabel.textContent = 'Finishing the current batch…';
+    setTimeout(() => { expStopBtn.disabled = false; }, 1500);
+  });
+
+  /* ══════════════════════════════════════════════════════
+     TAB 5 — IMPORT  (v3.19.0)
+     Any media type into the Media Library. Images are resized and
+     re-encoded in the browser (reusing the Image Resizer pipeline);
+     everything else is sent untouched.
+  ══════════════════════════════════════════════════════ */
+
+  const impDrop     = document.getElementById('imp-drop');
+  const impInput    = document.getElementById('imp-input');
+  const impQueueEl  = document.getElementById('imp-queue');
+  const impRunBtn   = document.getElementById('imp-run-btn');
+  const impClearBtn = document.getElementById('imp-clear-btn');
+  const impStopBtn  = document.getElementById('imp-stop-btn');
+  const impStatus   = document.getElementById('imp-status');
+  const impWrap     = document.getElementById('imp-progress-wrap');
+  const impFill     = document.getElementById('imp-progress-fill');
+  const impPct      = document.getElementById('imp-progress-pct');
+  const impCnt      = document.getElementById('imp-progress-count');
+  const impLabel    = document.getElementById('imp-progress-label');
+  const impImgMode  = document.getElementById('imp-img-mode');
+  const impImgSize  = document.getElementById('imp-img-size');
+  const impImgFmt   = document.getElementById('imp-img-fmt');
+  const impQuality  = document.getElementById('imp-img-quality');
+  const impQualBub  = document.getElementById('imp-img-quality-bubble');
+
+  let impQueue   = [];
+  let impCaps    = null;
+  let impRunning = false;
+  let impAborted = false;
+
+  const IMP_DOC_EXT = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|rtf|txt|csv|epub)$/i;
+  const IMP_ZIP_EXT = /\.(zip|rar|7z|gz|tar)$/i;
+
+  function impKind(file) {
+    const t = (file.type || '').split('/')[0];
+    if (t === 'image') return 'image';
+    if (t === 'video') return 'video';
+    if (t === 'audio') return 'audio';
+    if (file.type === 'application/pdf') return 'pdf';
+    if (IMP_DOC_EXT.test(file.name)) return 'document';
+    if (IMP_ZIP_EXT.test(file.name)) return 'archive';
+    return 'other';
+  }
+
+  function impBadge(kind, name) {
+    const ext = (name.split('.').pop() || '?').toUpperCase().slice(0, 4);
+    return ext;
+  }
+
+  /* ── Server capabilities ── */
+
+  function impLoadCaps() {
+    post('lmt_import_caps').then(r => {
+      if (!r || !r.success) return;
+      impCaps = r.data;
+      const limits = document.getElementById('imp-limits');
+      if (limits) limits.textContent =
+        'Images · video · audio · PDF · Office docs · archives — max ' + impCaps.max_upload_h + ' per file';
+    }).catch(() => {});
+  }
+
+  /* ── Queue ── */
+
+  function impRenderQueue() {
+    if (!impQueueEl) return;
+
+    const title = document.getElementById('imp-queue-title');
+    if (title) title.textContent = impQueue.length ? 'Queue — ' + impQueue.length + ' file' + (impQueue.length === 1 ? '' : 's') : 'Queue';
+
+    if (!impQueue.length) {
+      impQueueEl.innerHTML = '<div class="lmt-grid-empty">Nothing queued. Drop files above to get started.</div>';
+      impRunBtn.disabled = true;
+      impClearBtn.disabled = true;
+      impStatus.textContent = 'No files chosen yet.';
+      return;
+    }
+
+    impRunBtn.disabled = impRunning;
+    impClearBtn.disabled = impRunning;
+
+    impQueueEl.innerHTML = impQueue.map((item, i) => {
+      let badgeClass = 'lmt-badge-no-alt';
+      let statusText = 'Waiting';
+      if (item.status === 'done')    { badgeClass = 'lmt-badge-done';  statusText = 'Imported'; }
+      if (item.status === 'error')   { badgeClass = 'lmt-badge-error'; statusText = 'Failed'; }
+      if (item.status === 'working') { badgeClass = 'lmt-badge-has-alt'; statusText = 'Working'; }
+      if (item.status === 'toobig')  { badgeClass = 'lmt-badge-error'; statusText = 'Too large'; }
+
+      let meta = expBigBytes(item.file.size);
+      if (item.status === 'done' && item.after && item.after < item.before) {
+        const pct = Math.round((1 - item.after / item.before) * 100);
+        meta = expBigBytes(item.before) + ' → ' + expBigBytes(item.after) + ' · ' + pct + '% smaller';
+      } else if (item.status === 'done') {
+        meta = expBigBytes(item.after || item.file.size);
+      }
+      if (item.note) meta += ' · ' + escHtml(item.note);
+
+      const link = item.edit ? '<a class="lmt-btn lmt-btn-sm" href="' + escHtml(item.edit) + '">Open</a>' : '';
+      const remove = impRunning ? '' : '<button type="button" class="lmt-btn lmt-btn-sm" data-imp-del="' + i + '">Remove</button>';
+
+      return '<div class="lmt-x-job">' +
+        '<div class="lmt-x-job-main">' +
+          '<span class="lmt-img-status-badge ' + badgeClass + '">' + statusText + '</span>' +
+          '<span class="lmt-x-ftype">' + escHtml(impBadge(item.kind, item.file.name)) + '</span>' +
+          '<div><div class="lmt-x-fname">' + escHtml(item.file.name) + '</div>' +
+          '<div class="lmt-x-jobmeta">' + meta + '</div></div>' +
+        '</div>' +
+        '<div class="lmt-x-job-actions">' + link + remove + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function impAddFiles(files) {
+    const max = impCaps ? impCaps.max_upload : 0;
+    Array.from(files).forEach(file => {
+      const kind = impKind(file);
+      // Images are shrunk client-side, so judge them on the compressed size later.
+      const tooBig = max && file.size > max && kind !== 'image';
+      impQueue.push({
+        file, kind,
+        status: tooBig ? 'toobig' : 'queued',
+        note: tooBig ? 'Over this server\u2019s ' + impCaps.max_upload_h + ' upload limit' : '',
+        before: file.size, after: 0, edit: ''
+      });
+    });
+    impRenderQueue();
+    const ready = impQueue.filter(i => i.status === 'queued').length;
+    impStatus.textContent = ready + ' file' + (ready === 1 ? '' : 's') + ' ready to import.';
+  }
+
+  // The file input is an invisible overlay on the dropzone (same pattern as the
+  // Image Resizer), so a click anywhere in the zone opens the picker natively.
+  impInput && impInput.addEventListener('change', () => {
+    impAddFiles(impInput.files);
+    impInput.value = '';
+  });
+  impDrop && impDrop.addEventListener('dragover', e => { e.preventDefault(); impDrop.classList.add('lmt-dragover'); });
+  impDrop && impDrop.addEventListener('dragleave', () => impDrop.classList.remove('lmt-dragover'));
+  impDrop && impDrop.addEventListener('drop', e => {
+    e.preventDefault();
+    impDrop.classList.remove('lmt-dragover');
+    if (e.dataTransfer && e.dataTransfer.files.length) impAddFiles(e.dataTransfer.files);
+  });
+
+  impQueueEl && impQueueEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-imp-del]');
+    if (!btn || impRunning) return;
+    impQueue.splice(parseInt(btn.dataset.impDel, 10), 1);
+    impRenderQueue();
+  });
+
+  impClearBtn && impClearBtn.addEventListener('click', () => {
+    if (impRunning) return;
+    impQueue = [];
+    impRenderQueue();
+  });
+
+  impQuality && impQuality.addEventListener('input', () => {
+    if (impQualBub) impQualBub.textContent = impQuality.value;
+  });
+
+  function impSyncImageControls() {
+    const on = impImgMode && impImgMode.value === 'compress';
+    [impImgSize, impImgFmt, impQuality].forEach(el => { if (el) el.disabled = !on; });
+    const row = document.getElementById('imp-img-quality-row');
+    if (row) row.style.opacity = on ? '1' : '0.45';
+  }
+  impImgMode && impImgMode.addEventListener('change', impSyncImageControls);
+
+  /* ── Prepare one file for upload ── */
+
+  async function impPrepare(item) {
+    if (item.kind !== 'image' || !impImgMode || impImgMode.value !== 'compress') {
+      return { blob: item.file, name: item.file.name };
+    }
+
+    const target = parseInt(impImgSize.value, 10) || 0;
+    const fmtSel = impImgFmt.value;
+    const q      = parseInt(impQuality.value, 10) || 82;
+
+    // Keep original format unless asked otherwise; anything canvas can't
+    // re-encode (SVG, TIFF, HEIC) goes through untouched.
+    let fmt = fmtSel;
+    if (fmt === 'KEEP') {
+      if (item.file.type === 'image/png')  fmt = 'PNG';
+      else if (item.file.type === 'image/webp') fmt = 'WEBP';
+      else if (item.file.type === 'image/jpeg') fmt = 'JPEG';
+      else return { blob: item.file, name: item.file.name };
+    }
+
+    try {
+      const bitmap = await createImageBitmap(item.file);
+      const longest = Math.max(bitmap.width, bitmap.height);
+      // computeDims scales up as happily as down, so never ask it to enlarge.
+      const useTarget = (target && longest > target) ? target : longest;
+      const { canvas } = await renderToCanvas(item.file, useTarget);
+      const blob = await canvasToBlob(canvas, fmt, q);
+      if (!blob) return { blob: item.file, name: item.file.name };
+
+      // A re-encode that makes the file bigger is not worth having.
+      if (blob.size >= item.file.size && fmtSel === 'KEEP' && useTarget === longest) {
+        return { blob: item.file, name: item.file.name };
+      }
+
+      const ext  = fmt === 'PNG' ? 'png' : fmt === 'JPEG' ? 'jpg' : 'webp';
+      const base = item.file.name.replace(/\.[^.]+$/, '');
+      return { blob, name: base + '.' + ext };
+    } catch (err) {
+      return { blob: item.file, name: item.file.name };
+    }
+  }
+
+  /* ── Run ── */
+
+  function impFinish(msg) {
+    impRunning = false;
+    impStopBtn.style.display = 'none';
+    impLabel.textContent = msg;
+    impRenderQueue();
+  }
+
+  async function impRun() {
+    const pending = impQueue.filter(i => i.status === 'queued');
+    if (!pending.length || impRunning) return;
+
+    impRunning = true;
+    impAborted = false;
+    impRunBtn.disabled = true;
+    impClearBtn.disabled = true;
+    impStopBtn.style.display = '';
+    impWrap.classList.remove('lmt-hidden');
+    impStatus.textContent = 'Importing…';
+
+    let done = 0;
+    const total = pending.length;
+
+    for (const item of pending) {
+      if (impAborted) break;
+
+      item.status = 'working';
+      impRenderQueue();
+      impLabel.textContent = 'Uploading ' + item.file.name;
+
+      try {
+        const prepared = await impPrepare(item);
+
+        const fd = new FormData();
+        fd.append('action', 'lmt_import_upload');
+        fd.append('nonce', NONCE);
+        fd.append('file', prepared.blob, prepared.name);
+
+        const res  = await fetch(AJAX, { method: 'POST', body: fd, credentials: 'same-origin' });
+        const data = await res.json();
+
+        if (!data || !data.success) throw new Error((data && data.data && data.data.message) || 'Upload failed');
+
+        item.status = 'done';
+        item.before = item.file.size;
+        item.after  = data.data.size || prepared.blob.size;
+        item.edit   = data.data.edit || '';
+      } catch (err) {
+        item.status = 'error';
+        item.note   = err.message || 'Upload failed';
+      }
+
+      done++;
+      const pct = Math.round((done / total) * 100);
+      impFill.style.width = pct + '%';
+      impPct.textContent  = pct + '%';
+      impCnt.textContent  = done + ' of ' + total + ' files';
+      impRenderQueue();
+    }
+
+    const ok     = impQueue.filter(i => i.status === 'done').length;
+    const failed = impQueue.filter(i => i.status === 'error').length;
+    impStatus.textContent = ok + ' imported' + (failed ? ', ' + failed + ' failed' : '') + '.';
+    impFinish(impAborted ? 'Stopped.' : '✓ Import complete');
+  }
+
+  impRunBtn && impRunBtn.addEventListener('click', impRun);
+  impStopBtn && impStopBtn.addEventListener('click', () => {
+    impAborted = true;
+    impLabel.textContent = 'Finishing the current file…';
+  });
+
   /* ── Init — v3.10.0 ── */
   initViewControls('mlr',   mlrLoadImages);
   initViewControls('alt',   loadAltPage);
@@ -1864,5 +2386,8 @@
   loadAltPage(1);
   loadTitleStats();
   loadTitlePage(1);
+
+  expScan();
+  expLoadJobs();
 
 })();

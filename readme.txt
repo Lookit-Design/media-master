@@ -4,11 +4,11 @@ Tags: media, images, alt text, compress, resize
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.16.2
+Stable tag: 3.19.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-A unified media toolkit: image resizer and compressor, media library resizer, and AI-powered alt text and title management.
+A unified media toolkit: image resizer and compressor, media library resizer, import, protected ZIP export, and AI-powered alt text and title management.
 
 == Description ==
 
@@ -17,6 +17,8 @@ Lookit Media Master brings several media-handling tools together under one admin
 * **Image Resizer & Compressor** — resize and compress images in the browser before uploading them to the Media Library.
 * **Media Library Resizer** — re-process images that are already in the Media Library, with an optional one-time backup of each original.
 * **Alt Text Manager** — review images that are missing alt text, edit alt text manually, or generate it automatically from the image using a vision-capable AI model (AWS Bedrock, via the Lookit AI platform). Includes bulk alt text from post titles and select-all controls.
+* **Import** — upload supported media one file per request. Images can be resized and compressed in the browser before upload.
+* **Export** — package filtered Media Library files into protected, authenticated ZIP downloads, with optional metadata CSV and archive splitting.
 * **Title Manager** — bulk-edit attachment titles, auto-title from filenames, or AI-generate titles from the image. Detects WordPress's default filename-based titles so they can be found and replaced.
 
 AI features are optional and only run when you set your Lookit AI endpoint in Settings.
@@ -34,6 +36,18 @@ This plugin connects to the Lookit AI platform (a self-hosted n8n endpoint opera
 The plugin also bundles a local copy of the JSZip library (MIT licensed) for building ZIP downloads in the browser; no external request is made for it.
 
 == Changelog ==
+
+= 3.19.3 =
+* Added one-file-per-request media import with optional client-side image resizing and compression.
+* Added batched, filtered ZIP exports with authenticated downloads, optional metadata CSV, archive splitting, and seven-day cleanup.
+* Added dynamic export years and restored the last-used admin tab.
+* Protected export jobs with randomized directories, per-user authorization, traversal checks, and CSV formula neutralization.
+
+= 3.18.0 =
+* Added site, media type, and date range details to export filenames and populated date ranges from years present in the Media Library.
+
+= 3.17.0 =
+* Added filtered Media Library export with folder structure choices and optional generated image sizes.
 
 = 3.16.2 =
 * Require permission to edit each attachment before saving alt text, titles, or resized files, so authors cannot change another author's media.
