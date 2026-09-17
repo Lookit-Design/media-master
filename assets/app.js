@@ -683,6 +683,14 @@
      view stays per tab, since the two tabs are used differently. */
   const LMT_SIZE_KEY = 'lmt_size';
 
+  /* v3.42.2 — the floor is 240, the size that gives seven cards across on a
+     full-width admin screen. Below that the card's own rows were overlapping;
+     those rows now shrink and stack on their own, so this is a "looks right"
+     floor rather than a "does not break" one. Anyone holding a smaller saved
+     value is lifted to it. */
+  const LMT_SIZE_MIN = 240;
+  const LMT_SIZE_MAX = 400;
+
   function lmtReadCardSize() {
     // Falls back to the old per-tab keys once, so nobody's setting resets.
     const v = localStorage.getItem(LMT_SIZE_KEY)
@@ -690,10 +698,12 @@
            || localStorage.getItem('lmt_size_alt')
            || localStorage.getItem('lmt_size_title');
     const n = parseInt(v, 10);
-    return (n >= 140 && n <= 360) ? n : 200;
+    if (!(n > 0)) return LMT_SIZE_MIN;
+    return Math.min(LMT_SIZE_MAX, Math.max(LMT_SIZE_MIN, n));
   }
 
   function lmtApplyCardSize(val) {
+    val = Math.min(LMT_SIZE_MAX, Math.max(LMT_SIZE_MIN, parseInt(val, 10) || LMT_SIZE_MIN));
     document.querySelectorAll('.lmt-size-range').forEach(s => {
       if (s.value !== String(val)) s.value = val;
     });
@@ -1909,13 +1919,70 @@
   // Bulk AI generation for selected images
   let aiBulkRunning = false, aiBulkStop = false;
 
+  /* v3.40.0 — bulk AI writes alt text, caption and description in one pass.
+     Each field is its own call to the platform, so a run costs up to three
+     calls per image; the field checkboxes in the toolbar trim that. A field
+     that already has content is left alone unless Overwrite is ticked, so
+     re-running over a part-finished library only fills the gaps. */
+  const AI_FIELDS = [
+    { key: 'alt',         label: 'alt text',    elId: id => `alt-inp-${id}`  },
+    { key: 'caption',     label: 'caption',     elId: id => `alt-cap-${id}`  },
+    { key: 'description', label: 'description', elId: id => `alt-desc-${id}` },
+  ];
+
+  /* v3.42.2 — Alt is ticked by default; Caption and Description are opt-in,
+     so a bulk run is one call per image unless you ask for more. Read as
+     "is it ticked" rather than "is it not unticked", which used to treat a
+     missing checkbox as on. */
+  function selectedAiFields() {
+    return AI_FIELDS.filter(f => document.getElementById(`alt-ai-field-${f.key}`)?.checked === true);
+  }
+
+  /* One field, one call. Alt has its own endpoint; caption and description
+     share lmt_meta_generate. Both save server-side. */
+  async function generateAiField(id, field, overwrite) {
+    const write = overwrite ? '1' : '0';
+    if (field === 'alt') {
+      const res = await post('lmt_ai_alt_generate', { id, save: '1', overwrite: write });
+      if (!res.success) throw new Error(res.data);
+      return { text: res.data.alt || '', skipped: res.data.skipped === true };
+    }
+    const res = await post('lmt_meta_generate', { id, field, save: '1', overwrite: write });
+    if (!res.success) throw new Error(res.data);
+    return { text: res.data.text || '', skipped: res.data.skipped === true };
+  }
+
+  function applyAiFieldToCard(id, field, text) {
+    const card = document.getElementById(`alt-card-${id}`);
+    const el   = document.getElementById(AI_FIELDS.find(f => f.key === field).elId(id));
+    if (el) el.value = text;
+
+    if (field === 'alt') {
+      const badge = card?.querySelector('.lmt-img-status-badge');
+      if (badge) { badge.className = 'lmt-img-status-badge lmt-badge-has-alt'; badge.textContent = '✓ Has alt'; }
+    } else {
+      // Clear the matching "No caption" / "No description" flag in the header.
+      const want  = field === 'caption' ? 'No caption' : 'No description';
+      const flags = card?.querySelector('.lmt-meta-flags');
+      if (flags) flags.querySelectorAll('.lmt-chip').forEach(ch => {
+        if (ch.textContent.trim() === want) ch.remove();
+      });
+    }
+    if (card) card.classList.add('lmt-card-done');
+  }
+
   document.getElementById('alt-ai-bulk-btn')?.addEventListener('click', async function() {
     if (aiBulkRunning || altSelected.size === 0) return;
     if (!window.LMT?.has_key) { alert('No Lookit AI endpoint set. Go to Media Master → Settings.'); return; }
 
-    const ids = [...altSelected];
+    const ids       = [...altSelected];
     const overwrite = document.getElementById('alt-overwrite')?.checked;
-    if (!confirm(`Generate AI alt text for ${ids.length} selected image(s) using AWS Bedrock?\n\nThis will call the Lookit AI platform once per image and auto-save the results.`)) return;
+    const fields    = selectedAiFields();
+
+    if (!fields.length) { alert('Tick at least one field for AI to write.'); return; }
+
+    const names = fields.map(f => f.label).join(', ');
+    if (!confirm(`Generate ${names} for ${ids.length} selected image(s) using AWS Bedrock?\n\nThat is up to ${ids.length * fields.length} call(s) to the Lookit AI platform, and results are saved automatically.`)) return;
 
     aiBulkRunning = true; aiBulkStop = false;
     this.style.display = 'none';
@@ -1926,55 +1993,61 @@
     let done=0, ok=0, skipped=0, failed=0;
     const total = ids.length;
 
+    const logLine = (html) => {
+      if (!altLog) return;
+      altLog.innerHTML += html + '<br>';
+      altLog.scrollTop = altLog.scrollHeight;
+    };
+
     const setP = () => {
       const pct = Math.round((done/total)*100);
       if(altProgressFill) altProgressFill.style.width = pct+'%';
       if(altProgressPct)  altProgressPct.textContent  = pct+'%';
       if(altProgressCnt)  altProgressCnt.textContent  = `${done}/${total}`;
-      if(altProgressLbl)  altProgressLbl.textContent  = `✨ AI generating… ${ok} done · ${skipped} skipped · ${failed} failed`;
+      if(altProgressLbl)  altProgressLbl.textContent  = `✨ AI generating… ${ok} written · ${skipped} skipped · ${failed} failed`;
     };
     setP();
 
     for (const id of ids) {
       if (aiBulkStop) break;
 
-      // Skip if has alt and overwrite is off
-      const inp = document.getElementById(`alt-inp-${id}`);
-      if (!overwrite && inp?.value?.trim()) {
-        skipped++; done++; setP();
-        if(altLog) altLog.innerHTML += `⟳ #${id}: skipped (already has alt)<br>`;
-        continue;
-      }
+      for (const f of fields) {
+        if (aiBulkStop) break;
 
-      try {
-        const res = await post('lmt_ai_alt_generate', { id, save: '1' });
-        if (!res.success) throw new Error(res.data);
+        // Per field, not per image: an image with alt but no caption still
+        // gets its caption written.
+        const el = document.getElementById(f.elId(id));
+        if (!overwrite && el && el.value.trim()) {
+          skipped++; setP();
+          logLine(`⟳ #${id} ${f.label}: skipped (already set)`);
+          continue;
+        }
 
-        const alt = res.data.alt;
-        ok++;
+        try {
+          const generated = await generateAiField(id, f.key, overwrite);
+          if (generated.skipped) {
+            skipped++; setP();
+            logLine(`⟳ #${id} ${f.label}: skipped (already set)`);
+            continue;
+          }
+          applyAiFieldToCard(id, f.key, generated.text);
+          ok++;
+          logLine(`✨ #${id} ${f.label}: ${escHtml(generated.text.substring(0,60))}`);
+        } catch(err) {
+          failed++;
+          logLine(`✗ #${id} ${f.label}: ${escHtml(err.message||'failed')}`);
+        }
 
-        // Update UI
-        const card  = document.getElementById(`alt-card-${id}`);
-        const badge = card?.querySelector('.lmt-img-status-badge');
-        if (inp) inp.value = alt;
-        if (card) card.classList.add('lmt-card-done');
-        if (badge) { badge.className='lmt-img-status-badge lmt-badge-has-alt'; badge.textContent='✓ Has alt'; }
-        if(altLog) altLog.innerHTML += `✨ #${id}: ${escHtml(alt.substring(0,70))}<br>`;
-        if(altLog) altLog.scrollTop = altLog.scrollHeight;
-
-      } catch(err) {
-        failed++;
-        if(altLog) altLog.innerHTML += `✗ #${id}: ${escHtml(err.message||'failed')}<br>`;
-        if(altLog) altLog.scrollTop = altLog.scrollHeight;
+        setP();
+        // Small delay between calls to avoid rate limiting
+        await new Promise(r => setTimeout(r, 300));
       }
 
       done++; setP();
-      // Small delay between calls to avoid rate limiting
-      await new Promise(r => setTimeout(r, 300));
     }
 
     const stopped = aiBulkStop ? ' (stopped)' : '';
-    if(altProgressLbl) altProgressLbl.textContent = `✨ AI done${stopped} — ${ok} generated · ${skipped} skipped · ${failed} failed`;
+    if(altProgressLbl) altProgressLbl.textContent = `✨ AI done${stopped} — ${ok} written · ${skipped} skipped · ${failed} failed`;
     aiBulkRunning = false; aiBulkStop = false;
     this.style.display = '';
     document.getElementById('alt-stop-btn').style.display = 'none';
@@ -3175,12 +3248,24 @@
     if (field === 'alt')   { action = 'lmt_ai_alt_generate';   body = { id }; }
     if (field === 'title') { action = 'lmt_ai_title_generate'; body = { id }; }
 
+    /* v3.42.0 — extra context applies to Caption and Description, each with
+       its own box inside its own field. Empty means the request is identical
+       to what it was before the box existed. */
+    if (field === 'caption' || field === 'description') {
+      const group = target.closest('.lmt-att-field');
+      const ctx = group ? group.querySelector('.lmt-att-context') : null;
+      const val = ctx ? ctx.value.trim() : '';
+      if (val) body.context = val;
+    }
+
     try {
       const res = await req(action, body);
       if (res.success) {
         target.value = res.data.text || res.data.alt || res.data.title || '';
         target.focus();
-        say('Generated. Review it, then save.', 'ok');
+        say(res.data.context_used
+          ? 'Generated using your extra context. Review it, then save.'
+          : 'Generated. Review it, then save.', 'ok');
       } else {
         say('✗ ' + (res.data || 'AI generation failed'), 'bad');
       }
@@ -3194,6 +3279,25 @@
 
   root.querySelectorAll('.lmt-att-ai').forEach(btn => {
     btn.addEventListener('click', () => generate(btn.dataset.field, btn.dataset.target, btn));
+  });
+
+  /* ── Extra context: each box lives inside the field it feeds, so light up
+       the whole group while something is typed in it. Purely visual; the
+       value is read at request time. ── */
+  root.querySelectorAll('.lmt-att-context').forEach(ctx => {
+    const group = ctx.closest('.lmt-att-ctx');
+    if (!group) return;
+    const state = group.querySelector('.lmt-att-ctx-state');
+    const clear = group.querySelector('.lmt-att-ctx-clear');
+    const sync = () => {
+      const on = ctx.value.trim() !== '';
+      ctx.classList.toggle('is-set', on);
+      group.classList.toggle('is-active', on);
+      if (state) state.hidden = !on;
+    };
+    ctx.addEventListener('input', sync);
+    clear?.addEventListener('click', () => { ctx.value = ''; sync(); ctx.focus(); });
+    sync();
   });
 
   /* ── Fill every empty field, one call at a time so a failure

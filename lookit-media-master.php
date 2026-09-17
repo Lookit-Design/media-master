@@ -2,7 +2,7 @@
 /**
  * Plugin Name:  Lookit Media Master
  * Description:  A unified media toolkit with image tools, metadata management, media import, protected ZIP export, and optional AI generation.
- * Version:      3.39.3
+ * Version:      3.42.5
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'LMT_VERSION', '3.39.3' );
+define( 'LMT_VERSION', '3.42.5' );
 define( 'LMT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'LMT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -683,6 +683,20 @@ add_action( 'wp_ajax_lmt_ir_upload', function () {
 //  filter takes a value, it must go through $wpdb->prepare().
 // ═══════════════════════════════════════════════════════════════
 
+function lmt_grid_thumb_url( $id ) {
+    $metadata = wp_get_attachment_metadata( $id );
+    foreach ( array( 'medium_large', 'large', 'medium' ) as $size ) {
+        if ( empty( $metadata['sizes'][ $size ]['file'] ) ) {
+            continue;
+        }
+        $url = wp_get_attachment_image_url( $id, $size );
+        if ( $url ) {
+            return $url;
+        }
+    }
+    return (string) wp_get_attachment_image_url( $id, 'full' );
+}
+
 add_filter( 'posts_where', 'lmt_meta_posts_where', 10, 2 );
 function lmt_meta_posts_where( $where, $query ) {
     $mode     = $query->get( 'lmt_meta_filter' );
@@ -837,7 +851,7 @@ add_action( 'wp_ajax_lmt_alt_get_batch', function () {
     foreach ( $ids as $id ) {
         // v3.39.0 — 'medium' (300px) not 'medium_large' (768px); the card
         // renders these at ~200px wide.
-        $thumb   = (string) wp_get_attachment_image_url( $id, 'medium' );
+        $thumb   = lmt_grid_thumb_url( $id );
         $alt     = get_post_meta( $id, '_wp_attachment_image_alt', true );
         $file    = get_attached_file( $id );
         $meta    = wp_get_attachment_metadata( $id );
@@ -1426,7 +1440,7 @@ add_action( 'wp_ajax_lmt_title_get_batch', function () {
 
     $items = array();
     foreach ( $ids as $id ) {
-        $thumb   = (string) wp_get_attachment_image_url( $id, 'medium' );
+        $thumb   = lmt_grid_thumb_url( $id );
         $post    = get_post( $id );
         $title   = $post ? (string) $post->post_title : '';
         $file    = get_attached_file( $id );
@@ -1532,7 +1546,6 @@ add_action( 'wp_ajax_lmt_ai_title_generate', function () {
     $id = intval( $_POST['id'] ?? 0 );
     if ( ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'You cannot edit this attachment.' );
     }
-
     $endpoint = get_option( 'lmt_n8n_endpoint', '' );
     if ( ! $endpoint ) { wp_send_json_error( 'No Lookit AI endpoint set. Go to Media Master → Settings.' );
     }
@@ -1639,7 +1652,7 @@ add_action( 'wp_ajax_lmt_mlr_get_images', function () {
         $meta       = wp_get_attachment_metadata( $id );
         $file       = get_attached_file( $id );
         $filesize   = $file && file_exists( $file ) ? filesize( $file ) : 0;
-        $thumb      = (string) wp_get_attachment_image_url( $id, 'medium' );
+        $thumb      = lmt_grid_thumb_url( $id );
         $mime       = get_post_mime_type( $id );
         $w          = $meta['width'] ?? 0;
         $h          = $meta['height'] ?? 0;
@@ -1941,7 +1954,7 @@ add_action(
 //  (Nova Lite vision) and returns { "text": "..." }.
 // ═══════════════════════════════════════════════════════════════
 
-function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string $mime, string $prompt ): array {
+function lmt_n8n_request_args( $token, $data_uri, $mime, $prompt ) {
     $body_payload = array(
         'image'  => $data_uri,   // full data URI; n8n strips the "data:...;base64," prefix
         'mime'   => $mime,
@@ -1957,11 +1970,15 @@ function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string
         $headers['Authorization'] = 'Bearer ' . $token;
     }
 
-    $response = wp_remote_post( $endpoint, array(
+    return array(
         'timeout' => 90,
         'headers' => $headers,
         'body'    => wp_json_encode( $body_payload ),
-    ) );
+    );
+}
+
+function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string $mime, string $prompt ): array {
+    $response = wp_remote_post( $endpoint, lmt_n8n_request_args( $token, $data_uri, $mime, $prompt ) );
 
     if ( is_wp_error( $response ) ) {
         return array(
@@ -2014,6 +2031,14 @@ function lmt_n8n_call( string $endpoint, string $token, string $data_uri, string
 );
 }
 
+function lmt_connection_test_payload() {
+    return array(
+        'data_uri' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mPQqDiBFTEMLQkAAtVaAbl+5LMAAAAASUVORK5CYII=',
+        'mime'     => 'image/png',
+        'prompt'   => 'This is a connection test. Reply with just the two letters: OK',
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  AJAX — TEST CONNECTION (Settings page)
 //  Sends a tiny built-in image to the endpoint to confirm wiring
@@ -2030,14 +2055,10 @@ add_action( 'wp_ajax_lmt_ai_test', function () {
     }
     $token = get_option( 'lmt_n8n_token', '' );
 
-    // Small built-in 8x8 PNG — enough to exercise the full round-trip.
-    $png_b64  = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mPQqDiBFTEMLQkAAtVaAbl+5LMAAAAASUVORK5CYII=';
-    $data_uri = 'data:image/png;base64,' . $png_b64;
-    $prompt   = 'This is a connection test. Reply with just the two letters: OK';
-
-    $t0     = microtime( true );
-    $result = lmt_n8n_call( $endpoint, $token, $data_uri, 'image/png', $prompt );
-    $ms     = (int) round( ( microtime( true ) - $t0 ) * 1000 );
+    $payload = lmt_connection_test_payload();
+    $t0      = microtime( true );
+    $result  = lmt_n8n_call( $endpoint, $token, $payload['data_uri'], $payload['mime'], $payload['prompt'] );
+    $ms      = (int) round( ( microtime( true ) - $t0 ) * 1000 );
 
     if ( $result['ok'] ) {
         wp_send_json_success( array(
@@ -2061,6 +2082,18 @@ add_action( 'wp_ajax_lmt_ai_alt_generate', function () {
     $id = intval( $_POST['id'] ?? 0 );
     if ( ! lmt_user_can_edit_attachment( $id ) ) { wp_send_json_error( 'You cannot edit this attachment.' );
     }
+    $save      = '1' === sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) );
+    $overwrite = '1' === sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) );
+    if ( $save && lmt_generated_field_should_skip( $id, 'alt', $overwrite ) ) {
+        wp_send_json_success(
+            array(
+                'id'      => $id,
+                'alt'     => lmt_generated_field_value( $id, 'alt' ),
+                'saved'   => false,
+                'skipped' => true,
+            )
+        );
+    }
 
     $endpoint = get_option( 'lmt_n8n_endpoint', '' );
     if ( ! $endpoint ) { wp_send_json_error( 'No Lookit AI endpoint set. Go to Media Master → Settings.' );
@@ -2075,15 +2108,16 @@ add_action( 'wp_ajax_lmt_ai_alt_generate', function () {
 
     $result = lmt_n8n_call( $endpoint, $token, $image['uri'], $image['mime'], $prompt );
     if ( $result['ok'] ) {
-        $alt  = $result['alt'];
-        $save = ( sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) ) === '1' );
+        $alt = $result['alt'];
         if ( $save ) {
             update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
+            lmt_flush_stats_cache();
         }
         wp_send_json_success( array(
-            'id'    => $id,
-            'alt'   => $alt,
-            'saved' => $save,
+            'id'      => $id,
+            'alt'     => $alt,
+            'saved'   => $save,
+            'skipped' => false,
         ) );
         return;
     }
@@ -2114,6 +2148,23 @@ function lmt_field_prompt( $field ) {
     $key = ( 'caption' === $field ) ? 'lmt_ai_caption_prompt' : 'lmt_ai_desc_prompt';
     $val = trim( (string) get_option( $key, '' ) );
     return '' !== $val ? $val : lmt_default_field_prompt( $field );
+}
+
+function lmt_generated_field_value( $id, $field ) {
+    if ( 'alt' === $field ) {
+        return (string) get_post_meta( $id, '_wp_attachment_image_alt', true );
+    }
+    if ( 'caption' === $field ) {
+        return (string) get_post_field( 'post_excerpt', $id );
+    }
+    if ( 'description' === $field ) {
+        return (string) get_post_field( 'post_content', $id );
+    }
+    return '';
+}
+
+function lmt_generated_field_should_skip( $id, $field, $overwrite ) {
+    return ! $overwrite && '' !== trim( lmt_generated_field_value( $id, $field ) );
 }
 
 /**
@@ -2171,6 +2222,19 @@ function lmt_image_data_uri( $id ) {
 );
 }
 
+function lmt_context_prompt_suffix( $field, $context ) {
+    $facts = "\n\nAdditional facts about this image, supplied by the person managing it. They are true, and they are not visible in the image itself:\n" . $context . "\n\n";
+    if ( 'caption' === $field ) {
+        return $facts
+            . 'Work these facts into the caption. Keep to the one-sentence length limit above: if everything will not fit, keep the supplied facts and cut back the visual description rather than running over. '
+            . 'If a fact is an attribution or a credit, state it plainly, for example "Photo by Ricky." Do not contradict the facts and do not add any of your own.';
+    }
+    return $facts
+        . 'You must include every one of those facts in the description, written into the prose as full sentences. '
+        . 'If a fact is an attribution or a credit, state it plainly, for example "The logo was designed by Ricky." '
+        . 'Do not contradict them, do not omit any of them, and do not add facts of your own.';
+}
+
 function lmt_apply_generated_metadata( $id, $field, $text, $save ) {
     if ( ! lmt_user_can_edit_attachment( $id ) ) {
         return new WP_Error( 'permission_denied', 'You cannot edit this attachment.' );
@@ -2218,6 +2282,20 @@ add_action( 'wp_ajax_lmt_meta_generate', function () {
     if ( ! in_array( $field, array( 'caption', 'description' ), true ) ) {
         wp_send_json_error( 'Unsupported field' );
     }
+    $save      = '1' === sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) );
+    $overwrite = '1' === sanitize_text_field( wp_unslash( $_POST['overwrite'] ?? '0' ) );
+    if ( $save && lmt_generated_field_should_skip( $id, $field, $overwrite ) ) {
+        wp_send_json_success(
+            array(
+                'id'           => $id,
+                'field'        => $field,
+                'text'         => lmt_generated_field_value( $id, $field ),
+                'saved'        => false,
+                'skipped'      => true,
+                'context_used' => false,
+            )
+        );
+    }
 
     $endpoint = get_option( 'lmt_n8n_endpoint', '' );
     if ( ! $endpoint ) { wp_send_json_error( 'No Lookit AI endpoint set. Go to Media Master → Settings.' );
@@ -2228,7 +2306,12 @@ add_action( 'wp_ajax_lmt_meta_generate', function () {
     if ( ! $img['ok'] ) { wp_send_json_error( $img['error'] );
     }
 
-    $prompt = lmt_field_prompt( 'description' === $field ? 'description' : 'caption' );
+    $prompt  = lmt_field_prompt( 'description' === $field ? 'description' : 'caption' );
+    $context = sanitize_textarea_field( wp_unslash( (string) ( $_POST['context'] ?? '' ) ) );
+    $context = trim( wp_html_excerpt( $context, 300, '' ) );
+    if ( '' !== $context ) {
+        $prompt .= lmt_context_prompt_suffix( $field, $context );
+    }
     $result = lmt_n8n_call( $endpoint, $token, $img['uri'], $img['mime'], $prompt );
 
     if ( ! $result['ok'] ) {
@@ -2237,12 +2320,13 @@ add_action( 'wp_ajax_lmt_meta_generate', function () {
 
     // lmt_n8n_call returns the model text under 'alt' regardless of prompt.
     $text = trim( (string) $result['alt'] );
-    $save = ( sanitize_text_field( wp_unslash( $_POST['save'] ?? '0' ) ) === '1' );
 
     $response = lmt_apply_generated_metadata( $id, $field, $text, $save );
     if ( is_wp_error( $response ) ) {
         wp_send_json_error( $response->get_error_message() );
     }
+    $response['skipped']      = false;
+    $response['context_used'] = '' !== $context;
     wp_send_json_success( $response );
 } );
 
@@ -3404,11 +3488,14 @@ function lmt_render_page() {
     // v3.21.0 — the Settings panel posts back to this screen.
     $lmt_settings_saved = lmt_settings_handle_save();
 
+    // v3.42.4 — new filename plus a version query. The old logo.png carried
+    // no cache-busting at all, so browsers held the previous artwork
+    // indefinitely even after the file on disk changed.
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only panel selection.
     $initial_tab = isset( $_GET['tab'] ) ? lmt_sanitize_navigation_tab( wp_unslash( $_GET['tab'] ) ) : '';
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter selection.
     $initial_filter = lmt_sanitize_deep_filter( isset( $_GET['filter'] ) ? wp_unslash( $_GET['filter'] ) : '' );
-    $logo_url       = LMT_PLUGIN_URL . 'assets/logo.png';
+    $logo_url       = add_query_arg( 'ver', LMT_VERSION, LMT_PLUGIN_URL . 'assets/logo-mark.png' );
     ?>
     <div class="wrap lmt-admin-page">
     <div class="lmt-wrap" id="lmt-root" data-initial-tab="<?php echo esc_attr( $initial_tab ); ?>" data-initial-filter="<?php echo esc_attr( $initial_filter ); ?>">
@@ -3887,7 +3974,7 @@ function lmt_render_page() {
             </div>
             <div class="lmt-size-control" title="Display size">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-              <input type="range" id="mlr-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
+              <input type="range" id="mlr-size" class="lmt-range lmt-size-range" min="240" max="400" value="240" step="20" />
               <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
             </div>
             <?php
@@ -4053,13 +4140,19 @@ function lmt_render_page() {
             </select>
             <button class="lmt-btn" id="alt-refresh-btn">↺ Refresh</button>
             <div style="flex:1"></div>
+            <div class="lmt-ai-fields" role="group" aria-label="Fields AI Generate should write">
+              <span class="lmt-ai-fields-label">AI writes:</span>
+              <label class="lmt-toggle-row"><input type="checkbox" id="alt-ai-field-alt" checked><span>Alt</span></label>
+              <label class="lmt-toggle-row"><input type="checkbox" id="alt-ai-field-caption"><span>Caption</span></label>
+              <label class="lmt-toggle-row"><input type="checkbox" id="alt-ai-field-description"><span>Description</span></label>
+            </div>
             <label class="lmt-toggle-row">
               <input type="checkbox" id="alt-overwrite">
               <span>Overwrite existing</span>
             </label>
             <button class="lmt-btn" id="alt-title-bulk-btn" title="Use each image's title as its alt text for all selected images" disabled>&#128221; Use Title as Alt (Selected)</button>
-            <button class="lmt-btn lmt-btn-primary" id="alt-save-bulk-btn" title="Save the current alt text field for every selected image" disabled>&#128190; Save (Selected)</button>
             <button class="lmt-btn lmt-btn-ai" id="alt-ai-bulk-btn" disabled>&#10024; AI Generate (Selected)</button>
+            <button class="lmt-btn lmt-btn-primary" id="alt-save-bulk-btn" title="Save the current alt text field for every selected image" disabled>&#128190; Save (Selected)</button>
             <button class="lmt-btn lmt-btn-danger" id="alt-stop-btn" style="display:none">&#9632; Stop</button>
           </div>
 
@@ -4075,7 +4168,7 @@ function lmt_render_page() {
             </div>
             <div class="lmt-size-control" title="Display size">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-              <input type="range" id="alt-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
+              <input type="range" id="alt-size" class="lmt-range lmt-size-range" min="240" max="400" value="240" step="20" />
               <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
             </div>
             <?php
@@ -4241,7 +4334,7 @@ function lmt_render_page() {
             </div>
             <div class="lmt-size-control" title="Display size">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-              <input type="range" id="title-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
+              <input type="range" id="title-size" class="lmt-range lmt-size-range" min="240" max="400" value="240" step="20" />
               <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
             </div>
             <?php
@@ -4594,7 +4687,10 @@ function lmt_render_page() {
 // ═══════════════════════════════════════════════════════════════
 
 function lmt_render_attachment_page( $id ) {
-    $logo_url = LMT_PLUGIN_URL . 'assets/logo.png';
+    // v3.42.4 — new filename plus a version query. The old logo.png carried
+    // no cache-busting at all, so browsers held the previous artwork
+    // indefinitely even after the file on disk changed.
+    $logo_url = add_query_arg( 'ver', LMT_VERSION, LMT_PLUGIN_URL . 'assets/logo-mark.png' );
 
     /*
      * v3.23.0 — return context.
@@ -4786,6 +4882,21 @@ function lmt_render_attachment_page( $id ) {
                       <?php else : ?>
                         <input type="text" id="lmt-att-<?php echo esc_attr( $f['key'] ); ?>" class="lmt-att-input" data-field="<?php echo esc_attr( $f['key'] ); ?>" value="<?php echo esc_attr( $val ); ?>" placeholder="<?php echo esc_attr( $f['ph'] ); ?>"<?php echo $rec['can_edit'] ? '' : ' readonly'; ?> />
                       <?php endif; ?>
+                      <?php if ( in_array( $f['key'], array( 'caption', 'description' ), true ) && $rec['is_image'] && $rec['can_edit'] ) : ?>
+                        <?php // v3.42.0 — optional editor-supplied context, part of the field it feeds. ?>
+                        <div class="lmt-att-ctx">
+                          <label class="lmt-att-ctx-label" for="lmt-att-context-<?php echo esc_attr( $f['key'] ); ?>">
+                            Extra context <span class="sub">optional — anything the AI can't see in the image</span>
+                          </label>
+                          <textarea id="lmt-att-context-<?php echo esc_attr( $f['key'] ); ?>" class="lmt-att-input lmt-att-context"
+                            rows="2" maxlength="300"
+                            placeholder="Photographer, event, location, product name…"></textarea>
+                          <div class="lmt-att-ctx-state" hidden>
+                            <span>Generate will use this</span>
+                            <button type="button" class="lmt-att-ctx-clear">Clear</button>
+                          </div>
+                        </div>
+                      <?php endif; ?>
                     </div>
                   <?php endforeach; ?>
 
@@ -4829,7 +4940,7 @@ add_action( 'add_meta_boxes_attachment', function ( $post ) {
     if ( ! $post || ! wp_attachment_is_image( $post->ID ) ) {
         return;
     }
-    if ( ! current_user_can( 'upload_files' ) || ! lmt_user_can_edit_attachment( $post->ID ) ) {
+    if ( ! current_user_can( 'edit_post', $post->ID ) ) {
         return;
     }
     add_meta_box(
