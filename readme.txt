@@ -4,11 +4,11 @@ Tags: media, images, alt text, compress, resize
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.19.3
+Stable tag: 3.27.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-A unified media toolkit: image resizer and compressor, media library resizer, import, protected ZIP export, and AI-powered alt text and title management.
+A unified media toolkit: image resizer and compressor, media library resizer, AI-powered alt text and title management, and bulk export to ZIP.
 
 == Description ==
 
@@ -16,20 +16,22 @@ Lookit Media Master brings several media-handling tools together under one admin
 
 * **Image Resizer & Compressor** — resize and compress images in the browser before uploading them to the Media Library.
 * **Media Library Resizer** — re-process images that are already in the Media Library, with an optional one-time backup of each original.
-* **Alt Text Manager** — review images that are missing alt text, edit alt text manually, or generate it automatically from the image using a vision-capable AI model (AWS Bedrock, via the Lookit AI platform). Includes bulk alt text from post titles and select-all controls.
-* **Import** — upload supported media one file per request. Images can be resized and compressed in the browser before upload.
-* **Export** — package filtered Media Library files into protected, authenticated ZIP downloads, with optional metadata CSV and archive splitting.
+* **Metadata Manager** — review images that are missing alt text, captions or descriptions, edit any of them manually, or generate them from the image using a vision-capable AI model (AWS Bedrock, via the Lookit AI platform). Includes bulk alt text from post titles and select-all controls.
+* **Attachment pages** — every image has its own screen in the plugin, addressable by post ID, with a preview, file details, all four metadata fields and per-field AI generation.
+* **Media Master metabox** — on the WordPress attachment edit screen, generate alt text, a caption or a description straight into the fields already on that page.
+* **Import** — upload images, video, audio, PDFs, Office documents and archives into the Media Library from one screen. Images are resized and compressed in your browser before upload; everything else is stored as-is.
+* **Export** — download the Media Library, or any filtered slice of it, as a ZIP. Filter by media type, date range, attachment status or filename; choose how the archive is foldered (including grouping by the page or post each file was uploaded to); optionally include a metadata CSV listing alt text, caption and uploaded-to page for every file. Large libraries are packaged in batches and can be split into several archives.
 * **Title Manager** — bulk-edit attachment titles, auto-title from filenames, or AI-generate titles from the image. Detects WordPress's default filename-based titles so they can be found and replaced.
 
 AI features are optional and only run when you set your Lookit AI endpoint in Settings.
 
 == External Services ==
 
-This plugin connects to the Lookit AI platform (a self-hosted n8n endpoint operated by Lookit Design) to power its optional AI features (generating alt text and titles from images). When you use an AI generation feature, the plugin sends the relevant image (as a base64-encoded data URI), your configured text prompt, and your site URL and name to the endpoint you configure. The platform calls AWS Bedrock to analyse the image and returns the generated text. No data is sent unless you configure an endpoint and trigger an AI generation action.
+This plugin connects to the Lookit AI platform (a self-hosted n8n endpoint operated by Lookit Design) to power its optional AI features (generating alt text, captions, descriptions and titles from images). When you use an AI generation feature, the plugin sends the relevant image (as a base64-encoded data URI), your configured text prompt, and your site URL and name to the endpoint you configure. The platform calls AWS Bedrock to analyse the image and returns the generated text. No data is sent unless you configure an endpoint and trigger an AI generation action.
 
 * Service: Lookit AI platform (https://lookitai.com)
 * Data sent: the selected image, your text prompt, and your site URL and name
-* When: only when you click an "AI generate" action for alt text or titles
+* When: only when you click an AI generation action for alt text, titles, captions or descriptions
 * Terms of Service: https://lookitai.com/terms
 * Privacy Policy: https://lookitai.com/privacy
 
@@ -37,21 +39,117 @@ The plugin also bundles a local copy of the JSZip library (MIT licensed) for bui
 
 == Changelog ==
 
+= 3.27.1 =
+* Changed: Dark Mode and Square Corners moved off the top of every screen into Settings → Appearance, where they sit with Text size as Colour and Corners. Both are still saved per browser and still apply everywhere, including the image pages.
+* Changed: Image page — the preview is larger, sits on a shaded canvas and carries a hairline edge, so a pale screenshot no longer disappears into the box.
+* Fixed: Image page — the Metadata card has more space between its heading and the Title field, and the Open elsewhere buttons are inset from the edge of their card instead of sitting flush against it.
+
+= 3.27.0 =
+* Changed: Image size now applies to every tool at once. Moving the slider on Resize & compress keeps the same thumbnail size on Alt text & captions and Titles, instead of each tab remembering its own. Existing settings carry over.
+* Changed: Resize & compress — widths are a single row of chips instead of six stacked rows, saved widths sit alongside the presets, and Output, Quality, Only include and Back up originals share one strip. A plain-English line describes exactly what the run will do, with the Resize button next to it.
+* Changed: Alt text & captions — the counts are now the filter. Each tile shows an active state and names the current view in a clearable pill.
+* Fixed: Alt text & captions — the caption and description tiles are labelled "Missing caption" and "Missing description", matching what clicking them actually shows. Previously they were labelled "Have Captions" and "Have Descriptions" but filtered to the images missing them.
+* Changed: Titles uses the same filter tiles as Alt text. "Still a filename" replaces the "Select auto titles" button and covers every page, not only the one on screen.
+* Changed: The AI status banner collapses to a single line once AWS Bedrock is connected, and keeps its full treatment when no endpoint is set.
+
+= 3.26.0 =
+* Fixed: Explanatory text no longer wraps to a second line partway across a wide box. The reading-width limits on settings prose, checkbox notes and page ledes have been lifted so text runs to the edge of its container like the rest of the plugin.
+* Fixed: The "Remember the page I was last on" checkbox now uses the same markup as the other settings checkboxes, so the box, label and note line up instead of stacking.
+* Changed: The Text size label is sentence case, matching the rest of the settings screen.
+
+= 3.25.0 =
+* Changed: Image page — the preview no longer stretches to fill the column, so short pages stop scrolling. Metadata fields are now inset in their card, spaced apart, and the description box opens at a sensible height.
+* Changed: Alt text, caption and title rows are shorter. Thumbnails are smaller, the text boxes fit their content, and the extra caption and description controls no longer push each row taller than the screen.
+* Changed: Settings sections are spaced apart instead of stacking flush, so Connection, AI prompts, Admin menu and Appearance read as separate blocks.
+* Fixed: A duplicate list-card padding rule from 3.24.0 that was being overridden anyway.
+
+= 3.24.0 =
+* Changed: Every tool screen now opens with a page head — a breadcrumb back to All tasks, a plain-language title, and one line explaining what the screen does.
+* Changed: Rail labels renamed to describe the job rather than the module: Resize & compress, Alt text & captions, Titles. Tab identifiers, panel IDs and menu slugs are unchanged.
+* Changed: Section headers are sentence case and no longer uppercase micro-type, so they read as headings rather than field labels.
+* Changed: Type scale lifted across the plugin. Nothing renders below 11px any more, and the text-size setting still scales everything on top of the new baseline.
+* Changed: Light mode palette, card radius and spacing brought in line with the approved design: softer borders, a light page background and a single-pixel card shadow.
+
+= 3.23.0 =
+* Added: All tasks — a landing screen that names each job in plain language and shows how much work is waiting. It is the tab the plugin opens on for a new install; anyone who already has a preferred tab keeps it.
+* Added: Text size in Settings > Appearance. Four steps, applied to every Media Master screen straight away. Saved in the browser like Dark Mode, so it changes nothing for anyone else on the site.
+* Added: Page memory. Each tool reopens on the page it was left on, and a Back link from an image page returns to that exact page with the card you came from scrolled into view. Switchable off in Settings > Appearance.
+* Added: Edit details on the Image Resizer cards, and image thumbnails there are now links.
+* Changed: Edit details in the Metadata and Title managers opens the Media Master image page rather than the WordPress attachment editor.
+
+= 3.22.0 =
+* New: an optional setting folds the WordPress Media menu into Media Master, so the plugin becomes the single entry point for media. Off by default.
+* The move keeps whatever other plugins have added to the Media menu rather than replacing it with a fixed list, and Media Master takes Media's place in the sidebar instead of sitting at the bottom.
+* Nothing is deleted and every screen keeps its own URL, so turning the setting off or deactivating the plugin restores the menu exactly.
+
+= 3.21.1 =
+* Fixed: Generate did nothing for Description in the Media Master box on the attachment edit screen, while Alt text and Caption filled correctly. WordPress gives that editor the ID attachment_content even though it posts as content, so the box was looking for an element that was not there.
+* Changed: the box now resolves each field against a list of candidates and reports plainly if one cannot be found, rather than failing silently.
+
+= 3.21.0 =
+* New: Settings is now a panel inside Media Master, in the plugin's own design, instead of a separate grey WordPress options screen. The old settings URL redirects to it, so existing links and bookmarks still work.
+* New: an "Edit Details" button sits beside "Generate" on every image, opening that image in the WordPress media editor.
+* New: a Media Master box on the attachment edit screen generates alt text, captions and descriptions directly into the fields WordPress already shows there. It deliberately does not duplicate those fields, and nothing is saved until you press Update.
+* New: the main screen accepts a tab in the address, for example &tab=settings, so any panel can be linked to directly.
+* Changed: the rail flags Settings when no AI endpoint has been set yet.
+* Changed: the per-image AI button is now labelled "Generate" so it and "Edit Details" fit side by side.
+* Changed: Test Connection moved out of an inline script into the enqueued bundle.
+
+= 3.20.2 =
+* Fixed: two prepared statements passed a LIKE wildcard inside the query string instead of as a replacement parameter, which Plugin Check reports as an error.
+* Changed: Tested up to is now 7.1.
+
+= 3.20.1 =
+* Fixed: in list view a portrait image stretched its row to more than twice the height of a landscape one. Every list row now uses a fixed 4:3 thumbnail, so rows are a uniform height whatever the source image ratio.
+* Fixed: the caption and description flags overflowed the edge of a card in grid view, and the expand caret could be squeezed out of sight entirely.
+* Changed: in list view the caption and description fields open as two columns, so expanding a row costs one line of height instead of two.
+* Changed: the selection checkbox and the alt-text status badge now sit on opposite corners of the list thumbnail instead of crowding the same one.
+* Changed: status badges darken whatever is behind them, so they stay readable over a photo of a similar colour.
+
+= 3.20.0 =
+* New: Caption and Description can now be edited alongside alt text, both in the Metadata Manager grid and on the new attachment page.
+* New: every image has its own page in the plugin at admin.php?page=lookit-media-master&view=attachment&id=ID, with a preview, file details, all four metadata fields, per-field AI generation and Previous/Next navigation.
+* New: AI generation for captions and descriptions, with their own editable prompts in Settings.
+* New: the tool tabs are now a left navigation rail, grouped into Library, Transfer and Plugin, with a collapse toggle that is remembered per browser. Settings is reachable from the rail.
+* New: the rail shows a count of everything missing alt text, a caption or a description.
+* New: filter the library by missing caption, missing description, missing anything, or complete.
+* Changed: the Alt Text Manager tab is now called the Metadata Manager. Saving writes alt text, caption and description together.
+* Changed: library statistics are now a single aggregate query with a short-lived cache, instead of three full queries over every attachment.
+* Fixed: the version badge in the header was hard-coded and no longer matched the plugin version.
+
 = 3.19.3 =
-* Added one-file-per-request media import with optional client-side image resizing and compression.
-* Added batched, filtered ZIP exports with authenticated downloads, optional metadata CSV, archive splitting, and seven-day cleanup.
-* Added dynamic export years and restored the last-used admin tab.
-* Protected export jobs with randomized directories, per-user authorization, traversal checks, and CSV formula neutralization.
+* The Date range year list is now built with WP_Query instead of a direct database query.
+
+= 3.19.2 =
+* The plugin now reopens on whichever tab you last used instead of always landing on Image Resizer.
+
+= 3.19.1 =
+* Removed PDF compression from the Import tab. PDFs upload unchanged.
+
+= 3.19.0 =
+* New Import tab: upload images, video, audio, PDFs, Office documents and archives into the Media Library from one screen, one file at a time so a large batch cannot time out.
+* Images are resized and re-encoded in the browser before upload, with longest-edge, format and quality controls. A re-encode that would make a file larger is discarded.
+* The Image Resizer's "Upload Images" button now opens the Import tab.
 
 = 3.18.0 =
-* Added site, media type, and date range details to export filenames and populated date ranges from years present in the Media Library.
+* Date range now lists every year that actually has media of the selected type, read from the library rather than assumed, and refreshes when the media type changes.
+* Export filenames now identify the site, media type and date range, for example media-export-hepfree-documents-2017.zip. The metadata CSV matches the archive name, and part numbers only appear when the archive is split.
+
+= 3.17.2 =
+* Plugin Check pass on the Export tab: nonce verification moved into the request-parsing helper, folder deletion now goes through WP_Filesystem, and the remaining discouraged-function notice is annotated.
+
+= 3.17.1 =
+* Fixed: download links on the Export tab returned "The link you followed has expired". The nonce URL was HTML-escaped twice, so the security token arrived under the wrong parameter name.
 
 = 3.17.0 =
-* Added filtered Media Library export with folder structure choices and optional generated image sizes.
+* New Export tab: build a ZIP of the Media Library filtered by media type, date range, attachment status or filename.
+* Folder structure options for the archive, including "Group by uploaded-to page" — each file lands in a folder named after the page or post it was uploaded to, with unattached files in _unattached/.
+* Optional metadata CSV in every export, listing attachment ID, alt text, caption, dimensions and the uploaded-to page ID, title, type and URL.
+* Archives can be split at 500 MB, 1 GB or 2 GB for large libraries.
+* Built archives are listed on the Export tab and deleted automatically after 7 days.
 
 = 3.16.2 =
-* Require permission to edit each attachment before saving alt text, titles, or resized files, so authors cannot change another author's media.
-* Validate resized image bytes before writing them, and accept only image uploads in the Image Resizer.
+* Removed the example URL placeholder from the Lookit AI Endpoint field.
 
 = 3.16.1 =
 * Enlarged the "Used in" usage popup and bumped its text sizes for easier reading.
