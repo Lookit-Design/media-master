@@ -6,7 +6,7 @@
 [![Plugin Check](https://github.com/Lookit-Design/media-master/actions/workflows/plugin-check.yml/badge.svg)](../../actions/workflows/plugin-check.yml)
 [![Tests](https://github.com/Lookit-Design/media-master/actions/workflows/test.yml/badge.svg)](../../actions/workflows/test.yml)
 
-A unified WordPress media toolkit — resize and compress images, then review and generate alt text and titles, including optional AI generation through the Lookit AI platform.
+A unified WordPress media toolkit for resizing, importing, protected ZIP export, and managing image alt text and titles.
 
 Supports `WordPress >= 5.9` on `PHP >= 7.4`.
 
@@ -48,12 +48,16 @@ AI features only run when an endpoint is configured and you trigger a generate a
 * **Media Library Resizer** — re-process images already in the library, with an optional one-time backup of each original.
 * **Alt Text Manager** — find images missing alt text, edit it by hand, or generate it from the image via the Lookit AI platform.
 * **Title Manager** — bulk-edit attachment titles, title from filenames, or generate titles from the image.
+* **Import** — upload supported media one file per request, with optional client-side image optimization.
+* **Export** — build filtered ZIP archives in batches and download them through authenticated handlers.
 * **Usage indicators** — see how many posts embed each image, and jump to those posts from the card.
 
 ## Security and Privacy
 
 * The optional endpoint token is **never** rendered back into the settings form. Submitting the field blank keeps the saved value.
 * The token option is **not autoloaded**, so it is not pulled into memory on every front-end request.
+* Export archives use randomized directories, contain only files the requester may edit, and are served solely to the user who created them.
+* Export archives are deleted automatically after seven days.
 * On uninstall, stored settings including the token are **removed from the database**.
 
 When you run an AI generate action, the plugin sends the selected image, your prompt, and the site URL and name to the Lookit AI endpoint you configured. No data is sent until you trigger that action.

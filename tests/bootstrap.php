@@ -10,6 +10,10 @@ if ( file_exists( $autoload ) ) {
 	require_once $autoload;
 }
 
+if ( ! defined( 'DOING_AJAX' ) ) {
+	define( 'DOING_AJAX', true );
+}
+
 $_tests_dir = getenv( 'WP_TESTS_DIR' );
 
 if ( ! $_tests_dir ) {

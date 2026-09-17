@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:  Lookit Media Master
- * Description:  A unified media toolkit: Image Resizer & Compressor, Media Library Resizer, and AI-powered Alt Text Manager (AWS Bedrock vision, via the Lookit AI platform, generates alt text by analysing each image).
- * Version:      3.16.2
+ * Description:  A unified media toolkit with image tools, media import, protected ZIP export, and AI-powered alt text management.
+ * Version:      3.19.3
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'LMT_VERSION', '3.16.2' );
+define( 'LMT_VERSION', '3.19.3' );
 define( 'LMT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'LMT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -1707,600 +1707,1870 @@ add_action(
 );
 
 // ═══════════════════════════════════════════════════════════════
-//  ADMIN PAGE
+//  EXPORT — bulk download media as ZIP  (v3.17.0)
+//  Server-side ZipArchive build, driven in batches from the browser.
+//  Job state lives in a job.json inside the job folder (not in a
+//  transient) so a persistent object cache can't evict a running job.
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Root folder for built exports, created on demand and hardened
+ * against direct browsing. Downloads always go through the AJAX
+ * handler below, never through a direct URL.
+ */
+function lmt_export_base_dir() {
+    $up  = wp_upload_dir();
+    $dir = trailingslashit( $up['basedir'] ) . 'lookit-media-master-exports';
+
+    if ( ! file_exists( $dir ) ) {
+        wp_mkdir_p( $dir );
+    }
+    if ( ! file_exists( $dir . '/index.php' ) ) {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- one-time hardening stub; WP_Filesystem is not initialised this early in an AJAX request.
+        @file_put_contents( $dir . '/index.php', "<?php\n// Silence is golden.\n" );
+    }
+    if ( ! file_exists( $dir . '/.htaccess' ) ) {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- one-time hardening stub.
+        @file_put_contents( $dir . '/.htaccess', "Require all denied\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n" );
+    }
+    return $dir;
+}
+
+/** Media type buckets. Keys are the values used by the Type dropdown. */
+function lmt_export_type_map() {
+    return array(
+        'image'    => array( 'image' ),
+        'audio'    => array( 'audio' ),
+        'video'    => array( 'video' ),
+        'document' => array(
+            'application/pdf',
+'application/msword',
+'application/rtf',
+'text/rtf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/vnd.oasis.opendocument.text',
+'application/vnd.oasis.opendocument.spreadsheet',
+            'text/plain',
+'text/csv',
+'application/epub+zip',
+        ),
+        'archive'  => array(
+            'application/zip',
+'application/x-rar-compressed',
+'application/vnd.rar',
+            'application/x-7z-compressed',
+'application/gzip',
+'application/x-tar',
+        ),
+    );
+}
+
+/** Human label for a bucket, used in filenames and the UI. */
+function lmt_export_type_label( $type ) {
+    $labels = array(
+        'all'      => 'All media',
+        'image'    => 'Images',
+        'audio'    => 'Audio',
+        'video'    => 'Video',
+        'document' => 'Documents',
+        'archive'  => 'Archives',
+        'other'    => 'Other files',
+    );
+    return $labels[ $type ] ?? 'Media';
+}
+
+/**
+ * Mime types that fall into no named bucket. Needs the distinct list of
+ * mime types actually present in this library, so it is cached for an hour.
+ */
+function lmt_export_other_mimes() {
+    $cached = get_transient( 'lmt_export_other_mimes' );
+    if ( is_array( $cached ) ) {
+        return $cached;
+    }
+
+    global $wpdb;
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- no core API returns distinct attachment mime types; result is cached in a transient below.
+    $all = $wpdb->get_col( "SELECT DISTINCT post_mime_type FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type <> ''" );
+
+    $known = array();
+    foreach ( lmt_export_type_map() as $mimes ) {
+        $known = array_merge( $known, $mimes );
+    }
+
+    $other = array();
+    foreach ( (array) $all as $mime ) {
+        $prefix = strtok( $mime, '/' );
+        if ( in_array( $prefix, array( 'image', 'audio', 'video' ), true ) ) {
+            continue;
+        }
+        if ( in_array( $mime, $known, true ) ) {
+            continue;
+        }
+        $other[] = $mime;
+    }
+
+    // A library with nothing unusual in it still needs a value that matches nothing.
+    if ( empty( $other ) ) {
+        $other = array( 'lmt/none' );
+    }
+
+    set_transient( 'lmt_export_other_mimes', $other, HOUR_IN_SECONDS );
+    return $other;
+}
+
+/**
+ * Every year that has an attachment of the given type. Drives the Date range
+ * dropdown, so a library with documents from 2017 actually offers 2017.
+ */
+function lmt_export_years( $type ) {
+    $key    = 'lmt_export_years_' . $type;
+    $cached = get_transient( $key );
+    if ( is_array( $cached ) ) {
+        return $cached;
+    }
+
+    // Built entirely from WP_Query so there is no hand-written SQL to escape.
+    $base                        = lmt_export_query_args( array(
+        'type'     => $type,
+        'range'    => 'all',
+        'attached' => 'any',
+        'search'   => '',
+    ) );
+    $base['posts_per_page']      = 1;
+    $base['orderby']             = 'date';
+    $base['ignore_sticky_posts'] = true;
+    unset( $base['fields'] );
+
+    $newest = get_posts( array_merge( $base, array( 'order' => 'DESC' ) ) );
+    $oldest = get_posts( array_merge( $base, array( 'order' => 'ASC' ) ) );
+
+    if ( empty( $newest ) || empty( $oldest ) ) {
+        set_transient( $key, array(), HOUR_IN_SECONDS );
+        return array();
+    }
+
+    $max = (int) gmdate( 'Y', (int) strtotime( $newest[0]->post_date ) );
+    $min = (int) gmdate( 'Y', (int) strtotime( $oldest[0]->post_date ) );
+
+    // A malformed post_date shouldn't turn into a hundred probe queries.
+    if ( $min < 1990 || $min > $max ) {
+        $min = $max;
+    }
+    $min = max( $min, $max - 40 );
+
+    // One cheap indexed existence check per candidate year, so a year with
+    // nothing of this type in it never appears in the dropdown.
+    $probe           = $base;
+    $probe['fields'] = 'ids';
+
+    $years = array();
+    for ( $y = $max; $y >= $min; $y-- ) {
+        $hit = get_posts( array_merge( $probe, array(
+            'order'      => 'DESC',
+            'date_query' => array( array( 'year' => $y ) ),
+        ) ) );
+        if ( ! empty( $hit ) ) {
+            $years[] = $y;
+        }
+    }
+
+    set_transient( $key, $years, HOUR_IN_SECONDS );
+    return $years;
+}
+
+/** Turn the posted filter set into WP_Query arguments. */
+function lmt_export_query_args( array $f ) {
+    $args = array(
+        'post_type'      => 'attachment',
+        'post_status'    => 'inherit',
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+        'orderby'        => 'date',
+        'order'          => 'DESC',
+        'no_found_rows'  => true,
+    );
+
+    $type = $f['type'] ?? 'all';
+    $map  = lmt_export_type_map();
+    if ( isset( $map[ $type ] ) ) {
+        $args['post_mime_type'] = $map[ $type ];
+    } elseif ( 'other' === $type ) {
+        $args['post_mime_type'] = lmt_export_other_mimes();
+    }
+
+    $range = $f['range'] ?? 'all';
+    if ( '30' === $range || '365' === $range ) {
+        $args['date_query'] = array( array( 'after' => absint( $range ) . ' days ago' ) );
+    } elseif ( preg_match( '/^year:(\d{4})$/', (string) $range, $m ) ) {
+        $args['date_query'] = array( array( 'year' => absint( $m[1] ) ) );
+    }
+
+    $attached = $f['attached'] ?? 'any';
+    if ( 'attached' === $attached ) {
+        $args['post_parent__not_in'] = array( 0 );
+    } elseif ( 'unattached' === $attached ) {
+        $args['post_parent'] = 0;
+    }
+
+    if ( ! empty( $f['search'] ) ) {
+        $args['s'] = sanitize_text_field( $f['search'] );
+    }
+
+    return $args;
+}
+
+/** Keep only attachments the current user may edit. */
+function lmt_export_accessible_ids( $ids ) {
+    return array_values( array_filter( array_map( 'absint', (array) $ids ), 'lmt_user_can_edit_attachment' ) );
+}
+
+/** Short name for this site, taken from the domain: hepfree.nyc -> hepfree. */
+function lmt_export_site_slug() {
+    $host = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+    $host = preg_replace( '/^www\./i', '', $host );
+    $slug = sanitize_title( (string) strtok( $host, '.' ) );
+    if ( '' === $slug ) {
+        $slug = sanitize_title( get_bloginfo( 'name' ) );
+    }
+    return '' !== $slug ? $slug : 'site';
+}
+
+/** Filename-friendly form of the selected date range. */
+function lmt_export_range_slug( $range ) {
+    if ( preg_match( '/^year:(\d{4})$/', (string) $range, $m ) ) {
+        return $m[1];
+    }
+    if ( '30' === $range ) {
+        return 'last-30-days';
+    }
+    if ( '365' === $range ) {
+        return 'last-12-months';
+    }
+    return 'all-time';
+}
+
+/** e.g. media-export-hepfree-documents-2017 */
+function lmt_export_basename( array $filters ) {
+    return 'media-export-'
+        . lmt_export_site_slug() . '-'
+        . sanitize_title( lmt_export_type_label( $filters['type'] ) ) . '-'
+        . lmt_export_range_slug( $filters['range'] );
+}
+
+/** Read the posted filter set, sanitised. */
+function lmt_export_filters_from_request() {
+    // Every caller is an AJAX handler that has already verified this nonce.
+    // Re-checking here keeps the verification in the same scope as the $_POST reads.
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+
+    $allowed_types = array( 'all', 'image', 'audio', 'video', 'document', 'archive', 'other' );
+    $type          = isset( $_POST['type'] ) ? sanitize_key( wp_unslash( $_POST['type'] ) ) : 'all';
+
+    return array(
+        'type'     => in_array( $type, $allowed_types, true ) ? $type : 'all',
+        'range'    => isset( $_POST['range'] ) ? sanitize_text_field( wp_unslash( $_POST['range'] ) ) : 'all',
+        'attached' => isset( $_POST['attached'] ) ? sanitize_key( wp_unslash( $_POST['attached'] ) ) : 'any',
+        'search'   => isset( $_POST['search'] ) ? sanitize_text_field( wp_unslash( $_POST['search'] ) ) : '',
+        'folders'  => isset( $_POST['folders'] ) ? sanitize_key( wp_unslash( $_POST['folders'] ) ) : 'uploads',
+        'split'    => isset( $_POST['split'] ) ? absint( $_POST['split'] ) : 0,
+        'originals' => ! empty( $_POST['originals'] ),
+        'csv'      => ! empty( $_POST['csv'] ),
+    );
+}
+
+/** Best-effort byte size for an attachment, without stat-ing every file twice. */
+function lmt_export_file_size( $id, $path ) {
+    $meta = wp_get_attachment_metadata( $id );
+    if ( is_array( $meta ) && ! empty( $meta['filesize'] ) ) {
+        return (int) $meta['filesize'];
+    }
+    return ( $path && file_exists( $path ) ) ? (int) filesize( $path ) : 0;
+}
+
+/**
+ * Folder name for the "Group by uploaded-to page" option.
+ * Uses the parent's slugified title plus its ID, so two pages with the
+ * same title never collide and the ID is there when you re-attach.
+ */
+function lmt_export_parent_folder( $parent_id ) {
+    if ( ! $parent_id ) {
+        return '_unattached';
+    }
+    $parent = get_post( $parent_id );
+    if ( ! $parent ) {
+        return '_unattached';
+    }
+    $slug = sanitize_title( $parent->post_title );
+    if ( '' === $slug ) {
+        $slug = 'post';
+    }
+    if ( strlen( $slug ) > 60 ) {
+        $slug = rtrim( substr( $slug, 0, 60 ), '-' );
+    }
+    return $slug . '-' . (int) $parent_id;
+}
+
+/** Where a given file lands inside the archive. */
+function lmt_export_zip_path( $id, $path, $folders, $uploads_basedir ) {
+    $name = wp_basename( $path );
+
+    switch ( $folders ) {
+        case 'flat':
+            return $name;
+
+        case 'type':
+            $mime   = get_post_mime_type( $id );
+            $prefix = strtok( (string) $mime, '/' );
+            $bucket = 'other';
+            if ( in_array( $prefix, array( 'image', 'video' ), true ) ) {
+                $bucket = $prefix . 's';
+            } elseif ( 'audio' === $prefix ) {
+                $bucket = 'audio';
+            } else {
+                foreach ( array( 'document', 'archive' ) as $b ) {
+                    if ( in_array( $mime, lmt_export_type_map()[ $b ], true ) ) {
+                        $bucket = $b . 's';
+                    }
+                }
+            }
+            return $bucket . '/' . $name;
+
+        case 'parent':
+            return lmt_export_parent_folder( wp_get_post_parent_id( $id ) ) . '/' . $name;
+
+        case 'uploads':
+        default:
+            $rel = ltrim( str_replace( trailingslashit( $uploads_basedir ), '', $path ), '/' );
+            return ( '' !== $rel && $rel !== $path ) ? $rel : $name;
+    }
+}
+
+/** One CSV row of everything you need to put a file back where it belongs. */
+function lmt_export_manifest_row( $id, $zip_path, $bytes ) {
+    $parent_id = wp_get_post_parent_id( $id );
+    $parent    = $parent_id ? get_post( $parent_id ) : null;
+    $meta      = wp_get_attachment_metadata( $id );
+    $dims      = ( is_array( $meta ) && ! empty( $meta['width'] ) )
+        ? $meta['width'] . 'x' . $meta['height']
+        : '';
+
+    return array(
+        $id,
+        wp_basename( (string) get_attached_file( $id ) ),
+        $zip_path,
+        (string) get_post_mime_type( $id ),
+        $bytes,
+        $dims,
+        get_the_title( $id ),
+        (string) get_post_meta( $id, '_wp_attachment_image_alt', true ),
+        (string) wp_get_attachment_caption( $id ),
+        $parent_id ? $parent_id : '',
+        $parent ? $parent->post_title : '(Unattached)',
+        $parent ? $parent->post_type : '',
+        $parent ? (string) get_permalink( $parent ) : '',
+        (string) wp_get_attachment_url( $id ),
+        get_the_date( 'Y-m-d', $id ),
+    );
+}
+
+/** Turn a row of values into a CSV line. */
+function lmt_export_csv_line( array $row ) {
+    $cells = array();
+    foreach ( $row as $cell ) {
+        $cell = (string) $cell;
+        if ( preg_match( '/^[=+\-@]/', $cell ) ) {
+            $cell = "'" . $cell;
+        }
+        $cells[] = '"' . str_replace( '"', '""', $cell ) . '"';
+    }
+    return implode( ',', $cells ) . "\r\n";
+}
+
+function lmt_export_manifest_header() {
+    return array(
+        'Attachment ID',
+'Filename',
+'Path in ZIP',
+'MIME Type',
+'Size (bytes)',
+'Dimensions',
+        'Title',
+'Alt Text',
+'Caption',
+        'Uploaded To ID',
+'Uploaded To',
+'Uploaded To Type',
+'Uploaded To URL',
+        'Original URL',
+'Upload Date',
+    );
+}
+
+/** Read / write the job record. */
+function lmt_export_job_path( $job_id ) {
+    if ( ! lmt_export_valid_job_id( $job_id ) ) {
+        return '';
+    }
+    return lmt_export_base_dir() . '/' . $job_id . '/job.json';
+}
+
+function lmt_export_valid_job_id( $job_id ) {
+    return is_string( $job_id ) && 1 === preg_match( '/^[A-Za-z0-9]{48}$/', $job_id );
+}
+
+function lmt_export_user_can_access_job( $job ) {
+    return is_array( $job )
+        && current_user_can( 'upload_files' )
+        && isset( $job['user'] )
+        && get_current_user_id() === (int) $job['user'];
+}
+
+function lmt_export_read_job( $job_id ) {
+    $file = lmt_export_job_path( $job_id );
+    if ( ! $file || ! file_exists( $file ) ) {
+        return null;
+    }
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local plugin-owned job file, not a remote request.
+    $raw = @file_get_contents( $file );
+    $job = json_decode( (string) $raw, true );
+    return is_array( $job ) ? $job : null;
+}
+
+function lmt_export_write_job( $job ) {
+    $path = isset( $job['id'] ) ? lmt_export_job_path( $job['id'] ) : '';
+    if ( ! $path ) {
+        return false;
+    }
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- local plugin-owned job file written many times per export; WP_Filesystem adds no safety here.
+    return false !== @file_put_contents( $path, wp_json_encode( $job ) );
+}
+
+/** Delete a job folder and everything in it. */
+function lmt_export_delete_job( $job_id ) {
+    if ( ! lmt_export_valid_job_id( $job_id ) ) {
+        return false;
+    }
+    $dir = lmt_export_base_dir() . '/' . $job_id;
+    if ( ! is_dir( $dir ) ) {
+        return false;
+    }
+
+    global $wp_filesystem;
+    if ( ! function_exists( 'WP_Filesystem' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+    }
+    if ( WP_Filesystem() && $wp_filesystem ) {
+        return (bool) $wp_filesystem->delete( $dir, true );
+    }
+
+    // Fallback: hosts where WP_Filesystem cannot get direct access.
+    foreach ( (array) glob( $dir . '/*' ) as $f ) {
+        if ( is_file( $f ) ) {
+            wp_delete_file( $f );
+        }
+    }
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- WP_Filesystem was unavailable; removing a plugin-owned, now-empty export folder.
+    return (bool) rmdir( $dir );
+}
+
+/** Built archives are temporary. Anything older than 7 days is swept. */
+function lmt_export_cleanup() {
+    $base = lmt_export_base_dir();
+    foreach ( (array) glob( $base . '/*', GLOB_ONLYDIR ) as $dir ) {
+        $job_file = $dir . '/job.json';
+        $stamp    = file_exists( $job_file ) ? filemtime( $job_file ) : filemtime( $dir );
+        if ( $stamp && ( time() - $stamp ) > 7 * DAY_IN_SECONDS ) {
+            lmt_export_delete_job( wp_basename( $dir ) );
+        }
+    }
+}
+add_action( 'lmt_export_cleanup_event', 'lmt_export_cleanup' );
+
+add_action( 'admin_init', function () {
+    if ( ! wp_next_scheduled( 'lmt_export_cleanup_event' ) ) {
+        wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'lmt_export_cleanup_event' );
+    }
+} );
+
+register_deactivation_hook( __FILE__, function () {
+    wp_clear_scheduled_hook( 'lmt_export_cleanup_event' );
+} );
+
+// ── AJAX: count + size for the current filter set ────────────────
+
+add_action( 'wp_ajax_lmt_export_scan', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+
+    $filters = lmt_export_filters_from_request();
+    $ids     = lmt_export_accessible_ids( get_posts( lmt_export_query_args( $filters ) ) );
+
+    $bytes = 0;
+    if ( $ids ) {
+        update_meta_cache( 'post', $ids );
+        foreach ( $ids as $id ) {
+            $bytes += lmt_export_file_size( $id, get_attached_file( $id ) );
+        }
+    }
+
+    wp_send_json_success( array(
+        'count' => count( $ids ),
+        'bytes' => $bytes,
+        'years' => lmt_export_years( $filters['type'] ),
+    ) );
+} );
+
+// ── AJAX: start a job ────────────────────────────────────────────
+
+add_action( 'wp_ajax_lmt_export_start', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+    if ( ! class_exists( 'ZipArchive' ) ) {
+        wp_send_json_error( array( 'message' => 'The PHP ZipArchive extension is not available on this server.' ) );
+    }
+
+    $filters = lmt_export_filters_from_request();
+    $ids     = lmt_export_accessible_ids( get_posts( lmt_export_query_args( $filters ) ) );
+
+    if ( empty( $ids ) ) {
+        wp_send_json_error( array( 'message' => 'No files match those filters.' ) );
+    }
+
+    $job_id = wp_generate_password( 48, false, false );
+    $dir    = lmt_export_base_dir() . '/' . $job_id;
+    if ( ! wp_mkdir_p( $dir ) ) {
+        wp_send_json_error( array( 'message' => 'Could not create a protected export directory.' ) );
+    }
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- one-time defense-in-depth stub in a plugin-owned directory.
+    file_put_contents( $dir . '/index.php', "<?php\n// Silence is golden.\n" );
+
+    $job = array(
+        'id'        => $job_id,
+        'filters'   => $filters,
+        'ids'       => array_values( array_map( 'intval', $ids ) ),
+        'total'     => count( $ids ),
+        'done'      => 0,
+        'skipped'   => 0,
+        'bytes'     => 0,
+        'part'      => 1,
+        'part_bytes' => 0,
+        'parts'     => array(),
+        'csv'       => false,
+        'label'     => lmt_export_type_label( $filters['type'] ),
+        'base'      => lmt_export_basename( $filters ),
+        'created'   => time(),
+        'user'      => get_current_user_id(),
+        'status'    => 'running',
+    );
+    if ( ! lmt_export_write_job( $job ) ) {
+        lmt_export_delete_job( $job_id );
+        wp_send_json_error( array( 'message' => 'Could not save the export job.' ) );
+    }
+
+    wp_send_json_success( array(
+        'job'   => $job_id,
+        'total' => $job['total'],
+    ) );
+} );
+
+// ── AJAX: add the next batch of files ────────────────────────────
+
+add_action( 'wp_ajax_lmt_export_batch', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+
+    $job_id = isset( $_POST['job'] ) ? sanitize_text_field( wp_unslash( $_POST['job'] ) ) : '';
+    $job    = lmt_export_read_job( $job_id );
+    if ( ! $job ) {
+        wp_send_json_error( array( 'message' => 'That export job no longer exists.' ) );
+    }
+    if ( ! lmt_export_user_can_access_job( $job ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+    if ( 'running' !== ( $job['status'] ?? '' ) ) {
+        wp_send_json_error( array( 'message' => 'That export job is not running.' ) );
+    }
+
+    if ( function_exists( 'set_time_limit' ) ) {
+        // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- each batch copies up to 64 MB into the archive, which can outrun the default limit on slow disks.
+        set_time_limit( 300 );
+    }
+
+    $up          = wp_upload_dir();
+    $base_dir    = trailingslashit( $up['basedir'] );
+    $dir         = lmt_export_base_dir() . '/' . $job['id'];
+    $folders     = $job['filters']['folders'];
+    $originals   = ! empty( $job['filters']['originals'] );
+    $split_bytes = absint( $job['filters']['split'] ) * 1024 * 1024;
+    $base        = ! empty( $job['base'] ) ? $job['base'] : 'media-export-' . sanitize_title( $job['label'] );
+    $csv_path    = $dir . '/' . $base . '.csv';
+
+    // Batch by bytes rather than by file count: ZipArchive rewrites the
+    // archive on close(), so fewer, larger batches means far less disk churn.
+    $batch_budget = 64 * 1024 * 1024;
+    $batch_max    = 80;
+
+    // Only number the parts when the archive is actually being split.
+    $part_file = function ( $n ) use ( $dir, $base, $split_bytes ) {
+        return $dir . '/' . $base . ( $split_bytes ? '-part' . $n : '' ) . '.zip';
+    };
+
+    $zip  = new ZipArchive();
+    $path = $part_file( $job['part'] );
+    if ( $zip->open( $path, ZipArchive::CREATE ) !== true ) {
+        wp_send_json_error( array( 'message' => 'Could not open the archive for writing. Check folder permissions on uploads.' ) );
+    }
+
+    $added       = 0;
+    $batch_bytes = 0;
+    $split_break = false;
+
+    while ( $job['done'] < $job['total'] && $added < $batch_max && $batch_bytes < $batch_budget ) {
+        $id   = (int) $job['ids'][ $job['done'] ];
+        $file = get_attached_file( $id );
+
+        if ( ! lmt_user_can_edit_attachment( $id ) || ! $file || ! file_exists( $file ) ) {
+            $job['skipped']++;
+            $job['done']++;
+            continue;
+        }
+
+        $size = (int) filesize( $file );
+
+        // Start a new part when this file would push the current one over the limit.
+        if ( $split_bytes && $job['part_bytes'] > 0 && ( $job['part_bytes'] + $size ) > $split_bytes ) {
+            $split_break = true;
+            break;
+        }
+
+        $zip_path = lmt_export_zip_path( $id, $file, $folders, $base_dir );
+
+        // Grouping by page, type or flat can put two files with the same
+        // basename in one folder. Uploads mode can't collide by definition.
+        if ( 'uploads' !== $folders && false !== $zip->locateName( $zip_path ) ) {
+            $info     = pathinfo( $zip_path );
+            $dir_part = ( isset( $info['dirname'] ) && '.' !== $info['dirname'] ) ? $info['dirname'] . '/' : '';
+            $ext      = isset( $info['extension'] ) ? '.' . $info['extension'] : '';
+            $n        = 2;
+            do {
+                $candidate = $dir_part . $info['filename'] . '-' . $n . $ext;
+                $n++;
+            } while ( false !== $zip->locateName( $candidate ) && $n < 200 );
+            $zip_path = $candidate;
+        }
+
+        if ( $zip->addFile( $file, $zip_path ) ) {
+            // Media is already compressed; storing avoids pointless CPU.
+            if ( method_exists( $zip, 'setCompressionName' ) ) {
+                $zip->setCompressionName( $zip_path, ZipArchive::CM_STORE );
+            }
+
+            if ( ! $originals ) {
+                $meta = wp_get_attachment_metadata( $id );
+                if ( is_array( $meta ) && ! empty( $meta['sizes'] ) ) {
+                    $sub     = trailingslashit( dirname( $file ) );
+                    $dirpart = trailingslashit( dirname( $zip_path ) );
+                    if ( './' === $dirpart ) {
+                        $dirpart = '';
+                    }
+                    foreach ( $meta['sizes'] as $s ) {
+                        if ( empty( $s['file'] ) || ! file_exists( $sub . $s['file'] ) ) {
+                            continue;
+                        }
+                        $zip->addFile( $sub . $s['file'], $dirpart . $s['file'] );
+                        $job['part_bytes'] += (int) filesize( $sub . $s['file'] );
+                    }
+                }
+            }
+
+            if ( ! empty( $job['filters']['csv'] ) ) {
+                $line = lmt_export_csv_line( lmt_export_manifest_row( $id, $zip_path, $size ) );
+                if ( ! file_exists( $csv_path ) ) {
+                    $line = "\xEF\xBB\xBF" . lmt_export_csv_line( lmt_export_manifest_header() ) . $line;
+                }
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- appending one line per file to a plugin-owned manifest.
+                @file_put_contents( $csv_path, $line, FILE_APPEND );
+                $job['csv'] = true;
+            }
+
+            $job['bytes']      += $size;
+            $job['part_bytes'] += $size;
+            $batch_bytes       += $size;
+            $added++;
+        } else {
+            $job['skipped']++;
+        }
+
+        $job['done']++;
+    }
+
+    $zip->close();
+
+    if ( file_exists( $path ) && ! in_array( $path, $job['parts'], true ) ) {
+        $job['parts'][] = $path;
+    }
+
+    // Roll to the next part if this one has hit the split threshold.
+    if ( $split_bytes && $job['done'] < $job['total'] && ( $split_break || $job['part_bytes'] >= $split_bytes ) ) {
+        $job['part']++;
+        $job['part_bytes'] = 0;
+    }
+
+    lmt_export_write_job( $job );
+
+    wp_send_json_success( array(
+        'done'    => $job['done'],
+        'total'   => $job['total'],
+        'bytes'   => $job['bytes'],
+        'skipped' => $job['skipped'],
+        'parts'   => count( $job['parts'] ),
+        'complete' => $job['done'] >= $job['total'],
+    ) );
+} );
+
+// ── AJAX: write the manifest and close out the job ───────────────
+
+add_action( 'wp_ajax_lmt_export_finalize', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+
+    $job_id = isset( $_POST['job'] ) ? sanitize_text_field( wp_unslash( $_POST['job'] ) ) : '';
+    $job    = lmt_export_read_job( $job_id );
+    if ( ! $job ) {
+        wp_send_json_error( array( 'message' => 'That export job no longer exists.' ) );
+    }
+    if ( ! lmt_export_user_can_access_job( $job ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+    if ( 'running' !== ( $job['status'] ?? '' ) || (int) $job['done'] < (int) $job['total'] ) {
+        wp_send_json_error( array( 'message' => 'That export job is not complete.' ) );
+    }
+
+    $dir = lmt_export_base_dir() . '/' . $job['id'];
+
+    $base     = ! empty( $job['base'] ) ? $job['base'] : 'media-export-manifest';
+    $csv_path = $dir . '/' . $base . '.csv';
+    if ( ! empty( $job['csv'] ) && file_exists( $csv_path ) ) {
+        // Drop the manifest into the last part so the archive is self-describing.
+        $last = end( $job['parts'] );
+        if ( $last && file_exists( $last ) && class_exists( 'ZipArchive' ) ) {
+            $zip = new ZipArchive();
+            if ( $zip->open( $last ) === true ) {
+                $zip->addFile( $csv_path, $base . '.csv' );
+                $zip->close();
+            }
+        }
+    }
+
+    $job['status']   = 'ready';
+    $job['finished'] = time();
+    // The ID list is only needed while building.
+    $job['ids'] = array();
+    lmt_export_write_job( $job );
+
+    wp_send_json_success( lmt_export_job_summary( $job ) );
+} );
+
+/** Shape a job record for the UI. */
+function lmt_export_job_summary( $job ) {
+    $parts = array();
+    foreach ( (array) $job['parts'] as $i => $path ) {
+        if ( ! file_exists( $path ) ) {
+            continue;
+        }
+        $parts[] = array(
+            'n'     => $i + 1,
+            'name'  => wp_basename( $path ),
+            'bytes' => (int) filesize( $path ),
+            // Built raw on purpose: wp_nonce_url() HTML-escapes its return value,
+            // which then gets escaped a second time in the browser and breaks the nonce.
+            'url'   => add_query_arg(
+                array(
+                    'action'   => 'lmt_export_download',
+                    'job'      => $job['id'],
+                    'part'     => $i + 1,
+                    '_wpnonce' => wp_create_nonce( 'lmt_export_dl_' . $job['id'] ),
+                ),
+                admin_url( 'admin-ajax.php' )
+            ),
+        );
+    }
+
+    $csv_url = '';
+    if ( ! empty( $job['csv'] ) ) {
+        $csv_url = add_query_arg(
+            array(
+                'action'   => 'lmt_export_download',
+                'job'      => $job['id'],
+                'part'     => 'csv',
+                '_wpnonce' => wp_create_nonce( 'lmt_export_dl_' . $job['id'] ),
+            ),
+            admin_url( 'admin-ajax.php' )
+        );
+    }
+
+    return array(
+        'id'       => $job['id'],
+        'label'    => $job['label'],
+        'total'    => (int) $job['total'],
+        'skipped'  => (int) $job['skipped'],
+        'bytes'    => (int) $job['bytes'],
+        'status'   => $job['status'],
+        'created'  => (int) $job['created'],
+        'created_h' => wp_date( 'M j, g:i A', (int) $job['created'] ),
+        'expires_h' => wp_date( 'M j', (int) $job['created'] + 7 * DAY_IN_SECONDS ),
+        'folders'  => $job['filters']['folders'] ?? 'uploads',
+        'parts'    => $parts,
+        'csv_url'  => $csv_url,
+    );
+}
+
+// ── AJAX: list / delete built exports ────────────────────────────
+
+add_action( 'wp_ajax_lmt_export_jobs', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+
+    lmt_export_cleanup();
+
+    $jobs = array();
+    foreach ( (array) glob( lmt_export_base_dir() . '/*', GLOB_ONLYDIR ) as $dir ) {
+        $job = lmt_export_read_job( wp_basename( $dir ) );
+        if ( lmt_export_user_can_access_job( $job ) && 'ready' === ( $job['status'] ?? '' ) ) {
+            $jobs[] = lmt_export_job_summary( $job );
+        }
+    }
+
+    usort( $jobs, function ( $a, $b ) {
+        return $b['created'] <=> $a['created'];
+    } );
+
+    wp_send_json_success( array( 'jobs' => $jobs ) );
+} );
+
+add_action( 'wp_ajax_lmt_export_delete', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+    $job_id = isset( $_POST['job'] ) ? sanitize_text_field( wp_unslash( $_POST['job'] ) ) : '';
+    $job    = lmt_export_read_job( $job_id );
+    if ( ! lmt_export_user_can_access_job( $job ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+    lmt_export_delete_job( $job_id );
+    wp_send_json_success( array( 'deleted' => true ) );
+} );
+
+function lmt_export_download_target( $job, $part ) {
+    if ( ! is_array( $job ) || empty( $job['id'] ) || ! lmt_export_valid_job_id( $job['id'] ) ) {
+        return new WP_Error( 'invalid_job', 'That export is no longer available.' );
+    }
+
+    if ( 'csv' === $part ) {
+        $csv_base = ! empty( $job['base'] ) ? $job['base'] : 'media-export-manifest';
+        $path     = lmt_export_base_dir() . '/' . $job['id'] . '/' . $csv_base . '.csv';
+        $type     = 'text/csv';
+    } else {
+        $index = absint( $part ) - 1;
+        $path  = $job['parts'][ $index ] ?? '';
+        $type  = 'application/zip';
+    }
+
+    $real = $path ? realpath( $path ) : false;
+    $base = realpath( lmt_export_base_dir() . '/' . $job['id'] );
+    if ( ! $real || ! $base || 0 !== strpos( $real, trailingslashit( $base ) ) || ! is_file( $real ) ) {
+        return new WP_Error( 'missing_file', 'File not found.' );
+    }
+
+    return array(
+        'path' => $real,
+        'type' => $type,
+    );
+}
+
+// ── AJAX: stream a built file ────────────────────────────────────
+
+add_action( 'wp_ajax_lmt_export_download', function () {
+    $job_id = isset( $_GET['job'] ) ? sanitize_text_field( wp_unslash( $_GET['job'] ) ) : '';
+
+    check_admin_referer( 'lmt_export_dl_' . $job_id );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_die( esc_html__( 'Permission denied.', 'lookit-media-master' ), 403 );
+    }
+
+    $job = lmt_export_read_job( $job_id );
+    if ( ! $job ) {
+        wp_die( esc_html__( 'That export is no longer available.', 'lookit-media-master' ), 404 );
+    }
+    if ( ! lmt_export_user_can_access_job( $job ) || 'ready' !== ( $job['status'] ?? '' ) ) {
+        wp_die( esc_html__( 'Permission denied.', 'lookit-media-master' ), 403 );
+    }
+
+    $part   = isset( $_GET['part'] ) ? sanitize_text_field( wp_unslash( $_GET['part'] ) ) : '1';
+    $target = lmt_export_download_target( $job, $part );
+    if ( is_wp_error( $target ) ) {
+        wp_die( esc_html__( 'File not found.', 'lookit-media-master' ), 404 );
+    }
+    $real = $target['path'];
+    $type = $target['type'];
+
+    nocache_headers();
+    header( 'Content-Type: ' . $type );
+    header( 'Content-Disposition: attachment; filename="' . wp_basename( $real ) . '"' );
+    header( 'Content-Length: ' . filesize( $real ) );
+    header( 'X-Content-Type-Options: nosniff' );
+
+    if ( ob_get_level() ) {
+        ob_end_clean();
+    }
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile -- streaming a large plugin-generated archive; file_get_contents would exhaust memory.
+    readfile( $real );
+    exit;
+} );
+
+// ═══════════════════════════════════════════════════════════════
+//  IMPORT — upload any media type into the Media Library  (v3.19.0)
+//  Images are resized and compressed in the browser before they
+//  are sent. Everything else uploads as-is.
+// ═══════════════════════════════════════════════════════════════
+
+/** What this server can and can't do, so the UI can say so up front. */
+function lmt_import_capabilities() {
+    return array(
+        'max_upload'   => (int) wp_max_upload_size(),
+        'max_upload_h' => size_format( wp_max_upload_size() ),
+    );
+}
+
+function lmt_import_validate_upload( $file ) {
+    if ( ! is_array( $file ) || empty( $file['tmp_name'] ) || empty( $file['name'] ) ) {
+        return new WP_Error( 'invalid_upload', 'No valid file was received.' );
+    }
+    if ( ! empty( $file['error'] ) ) {
+        return new WP_Error( 'upload_error', 'The file upload failed.' );
+    }
+
+    $checked = wp_check_filetype_and_ext( $file['tmp_name'], $file['name'], get_allowed_mime_types() );
+    if ( empty( $checked['ext'] ) || empty( $checked['type'] ) ) {
+        return new WP_Error( 'invalid_mime', 'This file type is not allowed.' );
+    }
+    return $checked;
+}
+
+function lmt_import_media_file( $file, $parent_id = 0, $sideload = false ) {
+    if ( ! current_user_can( 'upload_files' ) ) {
+        return new WP_Error( 'permission_denied', 'Permission denied.' );
+    }
+
+    $validated = lmt_import_validate_upload( $file );
+    if ( is_wp_error( $validated ) ) {
+        return $validated;
+    }
+
+    $parent_id = absint( $parent_id );
+    if ( $parent_id && ! current_user_can( 'edit_post', $parent_id ) ) {
+        return new WP_Error( 'permission_denied', 'Permission denied for the selected parent.' );
+    }
+
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+    require_once ABSPATH . 'wp-admin/includes/media.php';
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+
+    if ( $sideload ) {
+        return media_handle_sideload( $file, $parent_id );
+    }
+    return media_handle_upload( 'file', $parent_id, array(), array( 'test_form' => false ) );
+}
+
+add_action( 'wp_ajax_lmt_import_caps', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+    wp_send_json_success( lmt_import_capabilities() );
+} );
+
+/** Upload one file. Called once per file by the browser. */
+add_action( 'wp_ajax_lmt_import_upload', function () {
+    check_ajax_referer( 'lmt_nonce', 'nonce' );
+    if ( ! current_user_can( 'upload_files' ) ) {
+        wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+    }
+
+    if ( empty( $_FILES['file'] ) || ! is_array( $_FILES['file'] ) ) {
+        wp_send_json_error( array( 'message' => 'No file received.' ) );
+    }
+
+    if ( function_exists( 'set_time_limit' ) ) {
+        // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- a large video upload can outrun the default limit.
+        set_time_limit( 300 );
+    }
+
+    $parent        = isset( $_POST['parent'] ) ? absint( $_POST['parent'] ) : 0;
+    $attachment_id = lmt_import_media_file( $_FILES['file'], $parent );
+    if ( is_wp_error( $attachment_id ) ) {
+        wp_send_json_error( array( 'message' => $attachment_id->get_error_message() ) );
+    }
+
+    $path = get_attached_file( $attachment_id );
+    $size = ( $path && file_exists( $path ) ) ? (int) filesize( $path ) : 0;
+
+    wp_send_json_success( array(
+        'id'       => $attachment_id,
+        'filename' => wp_basename( (string) $path ),
+        'url'      => wp_get_attachment_url( $attachment_id ),
+        'edit'     => get_edit_post_link( $attachment_id, '' ),
+        'size'     => $size,
+    ) );
+} );
+
 function lmt_render_page() {
-	$logo_url = LMT_PLUGIN_URL . 'assets/logo.png';
-	?>
-	<div class="wrap lmt-admin-page">
-	<div class="lmt-wrap" id="lmt-root">
+    $logo_url = LMT_PLUGIN_URL . 'assets/logo.png';
+    ?>
+    <div class="wrap lmt-admin-page">
+    <div class="lmt-wrap" id="lmt-root">
 
-	  <!-- ── Top bar ── -->
-	  <div class="lmt-topbar">
-		<div class="lmt-topbar-brand">
-		  <div class="lmt-logo-wrap">
-			<img src="<?php echo esc_url( $logo_url ); ?>" alt="Lookit Design" />
-		  </div>
-		  <div>
-			<div class="lmt-topbar-title">Lookit Media Master</div>
-			<div class="lmt-topbar-sub">
-			  <span class="lmt-status-dot"></span>
-			  All tools run securely within your WordPress admin
-			</div>
-		  </div>
-		</div>
-		<div class="lmt-topbar-meta">
-		  <span class="lmt-version-badge">v3.16 · AWS Bedrock AI</span>
-		  <button class="lmt-theme-toggle" id="lmt-theme-toggle" title="Toggle light / dark mode">
-			<!-- Sun icon: shown in dark mode -->
-			<span class="lmt-icon-sun">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-			</span>
-			<!-- Moon icon: shown in light mode -->
-			<span class="lmt-icon-moon">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-			</span>
-			<span class="lmt-theme-label-dark">Light Mode</span>
-			<span class="lmt-theme-label-light">Dark Mode</span>
-		  </button>
-		  <button class="lmt-theme-toggle lmt-corners-toggle" id="lmt-corners-toggle" title="Toggle square / rounded corners">
-			<span class="lmt-corners-icon">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>
-			</span>
-			<span id="lmt-corners-label">Square Corners</span>
-		  </button>
-		</div>
-	  </div>
-	  <div class="lmt-tabnav">
-		<button class="lmt-tab active" data-tab="mlr">
-		  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-		  Image Resizer
-		  <span class="lmt-tab-sub">Upload &amp; compress · resize in-place</span>
-		</button>
-		<button class="lmt-tab" data-tab="alt">
-		  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-		  Alt Text Manager
-		  <span class="lmt-tab-sub">Bulk edit &amp; backfill</span>
-		</button>
-		<button class="lmt-tab" data-tab="title">
-		  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-		  Title Manager
-		  <span class="lmt-tab-sub">Edit titles · AI generate</span>
-		</button>
-	  </div>
+      <!-- ── Top bar ── -->
+      <div class="lmt-topbar">
+        <div class="lmt-topbar-brand">
+          <div class="lmt-logo-wrap">
+            <img src="<?php echo esc_url( $logo_url ); ?>" alt="Lookit Design" />
+          </div>
+          <div>
+            <div class="lmt-topbar-title">Lookit Media Master</div>
+            <div class="lmt-topbar-sub">
+              <span class="lmt-status-dot"></span>
+              All tools run securely within your WordPress admin
+            </div>
+          </div>
+        </div>
+        <div class="lmt-topbar-meta">
+          <span class="lmt-version-badge">v3.19.3 · AWS Bedrock AI</span>
+          <button class="lmt-theme-toggle" id="lmt-theme-toggle" title="Toggle light / dark mode">
+            <!-- Sun icon: shown in dark mode -->
+            <span class="lmt-icon-sun">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            </span>
+            <!-- Moon icon: shown in light mode -->
+            <span class="lmt-icon-moon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </span>
+            <span class="lmt-theme-label-dark">Light Mode</span>
+            <span class="lmt-theme-label-light">Dark Mode</span>
+          </button>
+          <button class="lmt-theme-toggle lmt-corners-toggle" id="lmt-corners-toggle" title="Toggle square / rounded corners">
+            <span class="lmt-corners-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>
+            </span>
+            <span id="lmt-corners-label">Square Corners</span>
+          </button>
+        </div>
+      </div>
+      <div class="lmt-tabnav">
+        <button class="lmt-tab active" data-tab="mlr">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Image Resizer
+          <span class="lmt-tab-sub">Upload &amp; compress · resize in-place</span>
+        </button>
+        <button class="lmt-tab" data-tab="alt">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Alt Text Manager
+          <span class="lmt-tab-sub">Bulk edit &amp; backfill</span>
+        </button>
+        <button class="lmt-tab" data-tab="title">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          Title Manager
+          <span class="lmt-tab-sub">Edit titles · AI generate</span>
+        </button>
+        <button class="lmt-tab" data-tab="export">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+          <span class="lmt-tab-sub">Download media as a ZIP</span>
+        </button>
+        <button class="lmt-tab" data-tab="import">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Import
+          <span class="lmt-tab-sub">Upload any media type</span>
+        </button>
+      </div>
 
-	  <!-- ══════════════════════════════════════════
-		   TAB 1 — IMAGE RESIZER  (combined: upload + library resize)
-		   Two sub-views inside one panel:
-			 • #lmt-library-view  — browse & resize existing media (default)
-			 • #lmt-upload-view   — upload & compress new images (toggle)
-	  ══════════════════════════════════════════ -->
-	  <div class="lmt-panel active" id="lmt-panel-mlr">
-		<div class="lmt-panel-inner">
+      <!-- ══════════════════════════════════════════
+           TAB 1 — IMAGE RESIZER  (combined: upload + library resize)
+           Two sub-views inside one panel:
+             • #lmt-library-view  — browse & resize existing media (default)
+             • #lmt-upload-view   — upload & compress new images (toggle)
+      ══════════════════════════════════════════ -->
+      <div class="lmt-panel active" id="lmt-panel-mlr">
+        <div class="lmt-panel-inner">
 
-		  <!-- ── UPLOAD VIEW (shown when "Upload Images" is clicked) ── -->
-		  <div class="lmt-subview" id="lmt-upload-view" style="display:none">
+          <!-- ── UPLOAD VIEW (shown when "Upload Images" is clicked) ── -->
+          <div class="lmt-subview" id="lmt-upload-view" style="display:none">
 
-		  <div class="lmt-action-bar" style="margin-bottom:14px;">
-			<button type="button" class="lmt-btn" id="lkir-back-btn">&#8592; Back to Library</button>
-			<span class="lmt-status-text" style="margin-left:0;color:var(--text-2)">Upload &amp; compress new images — nothing is sent to the server until you click upload.</span>
-		  </div>
+          <div class="lmt-action-bar" style="margin-bottom:14px;">
+            <button type="button" class="lmt-btn" id="lkir-back-btn">&#8592; Back to Library</button>
+            <span class="lmt-status-text" style="margin-left:0;color:var(--text-2)">Upload &amp; compress new images — nothing is sent to the server until you click upload.</span>
+          </div>
 
-		  <!-- Drop zone -->
-		  <div class="lmt-section lmt-dropzone-section">
-			<div class="lmt-section-head">
-			  <span class="lmt-section-title">Upload Images</span>
-			  <span class="lmt-section-desc">Drop files or click to browse — nothing is sent to the server</span>
-			</div>
-			<div class="lmt-dropzone" id="lkir-drop">
-			  <div class="lmt-drop-icon-ring">
-				<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-			  </div>
-			  <p class="lmt-drop-title"><span>Click to browse</span> or drag &amp; drop images here</p>
-			  <p class="lmt-drop-note" id="lkir-filename">JPG &nbsp;·&nbsp; PNG &nbsp;·&nbsp; WebP &nbsp;·&nbsp; BMP &nbsp;·&nbsp; TIFF &nbsp;—&nbsp; single or batch</p>
-			  <p class="lmt-filelist" id="lkir-filelist"></p>
-			  <input id="lkir-input" type="file" accept="image/*" multiple />
-			</div>
-		  </div>
+          <!-- Drop zone -->
+          <div class="lmt-section lmt-dropzone-section">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title">Upload Images</span>
+              <span class="lmt-section-desc">Drop files or click to browse — nothing is sent to the server</span>
+            </div>
+            <div class="lmt-dropzone" id="lkir-drop">
+              <div class="lmt-drop-icon-ring">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+              <p class="lmt-drop-title"><span>Click to browse</span> or drag &amp; drop images here</p>
+              <p class="lmt-drop-note" id="lkir-filename">JPG &nbsp;·&nbsp; PNG &nbsp;·&nbsp; WebP &nbsp;·&nbsp; BMP &nbsp;·&nbsp; TIFF &nbsp;—&nbsp; single or batch</p>
+              <p class="lmt-filelist" id="lkir-filelist"></p>
+              <input id="lkir-input" type="file" accept="image/*" multiple />
+            </div>
+          </div>
 
-		  <!-- Controls row -->
-		  <div class="lmt-controls-row">
+          <!-- Controls row -->
+          <div class="lmt-controls-row">
 
-			<!-- Resize -->
-			<div class="lmt-section lmt-section-panel">
-			  <div class="lmt-section-head">
-				<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-				<span class="lmt-section-title">Resize — Longest Edge</span>
-			  </div>
-			  <div class="lmt-section-body">
-				<div class="lmt-radio-group">
-				  <label><input type="radio" name="lkir_size" value="2400"> <span>2400px</span> <em>Large · hero / slider</em></label>
-				  <label><input type="radio" name="lkir_size" value="1200" checked> <span>1200px</span> <em>Standard · default</em></label>
-				  <label><input type="radio" name="lkir_size" value="800"> <span>800px</span> <em>Medium · blog</em></label>
-				  <label><input type="radio" name="lkir_size" value="600"> <span>600px</span> <em>Small · inline / grid</em></label>
-				  <label class="lmt-custom-row">
-					<input type="radio" name="lkir_size" value="custom"> <span>Custom</span> <em>px</em>
-					<input type="number" id="lkir-custom-px" min="16" max="8000" placeholder="e.g. 1400" class="lmt-custom-input" />
-				  </label>
-				</div>
-			  </div>
-			</div>
+            <!-- Resize -->
+            <div class="lmt-section lmt-section-panel">
+              <div class="lmt-section-head">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <span class="lmt-section-title">Resize — Longest Edge</span>
+              </div>
+              <div class="lmt-section-body">
+                <div class="lmt-radio-group">
+                  <label><input type="radio" name="lkir_size" value="2400"> <span>2400px</span> <em>Large · hero / slider</em></label>
+                  <label><input type="radio" name="lkir_size" value="1200" checked> <span>1200px</span> <em>Standard · default</em></label>
+                  <label><input type="radio" name="lkir_size" value="800"> <span>800px</span> <em>Medium · blog</em></label>
+                  <label><input type="radio" name="lkir_size" value="600"> <span>600px</span> <em>Small · inline / grid</em></label>
+                  <label class="lmt-custom-row">
+                    <input type="radio" name="lkir_size" value="custom"> <span>Custom</span> <em>px</em>
+                    <input type="number" id="lkir-custom-px" min="16" max="8000" placeholder="e.g. 1400" class="lmt-custom-input" />
+                  </label>
+                </div>
+              </div>
+            </div>
 
-			<!-- Format & Compression -->
-			<div class="lmt-section lmt-section-panel">
-			  <div class="lmt-section-head">
-				<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-				<span class="lmt-section-title">Output &amp; Compression</span>
-			  </div>
-			  <div class="lmt-section-body">
-				<label class="lmt-label">Format</label>
-				<select id="lkir-format" class="lmt-select">
-				  <option value="JPEG" selected>JPEG</option>
-				  <option value="WEBP">WebP — smaller file</option>
-				  <option value="PNG">PNG — lossless</option>
-				</select>
-				<label class="lmt-label">Quality: <strong id="lkir-quality-val">82</strong></label>
-				<div class="lmt-quality-row">
-				  <input type="range" id="lkir-quality" min="10" max="100" value="82" step="1" class="lmt-range" />
-				  <span class="lmt-quality-bubble" id="lkir-quality-bubble">82</span>
-				</div>
-				<p class="lmt-note" id="lkir-quality-note">Lower = smaller file. Recommended: 75–90.</p>
-				<label class="lmt-label" style="margin-top:14px;">Rename Output</label>
-				<input id="lkir-rename" type="text" placeholder="e.g. product-hero" class="lmt-text-input" />
-				<p class="lmt-note">Leave blank to keep original filename.</p>
-			  </div>
-			</div>
+            <!-- Format & Compression -->
+            <div class="lmt-section lmt-section-panel">
+              <div class="lmt-section-head">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                <span class="lmt-section-title">Output &amp; Compression</span>
+              </div>
+              <div class="lmt-section-body">
+                <label class="lmt-label">Format</label>
+                <select id="lkir-format" class="lmt-select">
+                  <option value="JPEG" selected>JPEG</option>
+                  <option value="WEBP">WebP — smaller file</option>
+                  <option value="PNG">PNG — lossless</option>
+                </select>
+                <label class="lmt-label">Quality: <strong id="lkir-quality-val">82</strong></label>
+                <div class="lmt-quality-row">
+                  <input type="range" id="lkir-quality" min="10" max="100" value="82" step="1" class="lmt-range" />
+                  <span class="lmt-quality-bubble" id="lkir-quality-bubble">82</span>
+                </div>
+                <p class="lmt-note" id="lkir-quality-note">Lower = smaller file. Recommended: 75–90.</p>
+                <label class="lmt-label" style="margin-top:14px;">Rename Output</label>
+                <input id="lkir-rename" type="text" placeholder="e.g. product-hero" class="lmt-text-input" />
+                <p class="lmt-note">Leave blank to keep original filename.</p>
+              </div>
+            </div>
 
-		  </div><!-- .lmt-controls-row -->
+          </div><!-- .lmt-controls-row -->
 
-		  <!-- Action bar -->
-		  <div class="lmt-action-bar">
-			<button type="button" class="lmt-btn" id="lkir-btn-preview">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-			  Update Preview
-			</button>
-			<button type="button" class="lmt-btn" id="lkir-btn-upload">&#8593; Upload to Media Library</button>
-			<button type="button" class="lmt-btn lmt-btn-primary" id="lkir-btn-download">&#11015; Download</button>
-			<button type="button" class="lmt-btn lmt-btn-primary" id="lkir-btn-zip">&#11015; Download ZIP (Batch)</button>
-			<span class="lmt-status-text" id="lkir-status"></span>
-		  </div>
+          <!-- Action bar -->
+          <div class="lmt-action-bar">
+            <button type="button" class="lmt-btn" id="lkir-btn-preview">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              Update Preview
+            </button>
+            <button type="button" class="lmt-btn" id="lkir-btn-upload">&#8593; Upload to Media Library</button>
+            <button type="button" class="lmt-btn lmt-btn-primary" id="lkir-btn-download">&#11015; Download</button>
+            <button type="button" class="lmt-btn lmt-btn-primary" id="lkir-btn-zip">&#11015; Download ZIP (Batch)</button>
+            <span class="lmt-status-text" id="lkir-status"></span>
+          </div>
 
-		  <!-- Preview -->
-		  <div class="lmt-preview-area" id="lkir-preview-wrap">
-			<img id="lkir-preview-img" class="lmt-preview-img lmt-hidden" alt="Preview" />
-			<div class="lmt-meta-bar lmt-hidden" id="lkir-meta"></div>
-		  </div>
+          <!-- Preview -->
+          <div class="lmt-preview-area" id="lkir-preview-wrap">
+            <img id="lkir-preview-img" class="lmt-preview-img lmt-hidden" alt="Preview" />
+            <div class="lmt-meta-bar lmt-hidden" id="lkir-meta"></div>
+          </div>
 
-		  </div><!-- #lmt-upload-view -->
+          </div><!-- #lmt-upload-view -->
 
-		  <!-- ── LIBRARY VIEW (default — browse & resize existing media) ── -->
-		  <div class="lmt-subview" id="lmt-library-view">
+          <!-- ── LIBRARY VIEW (default — browse & resize existing media) ── -->
+          <div class="lmt-subview" id="lmt-library-view">
 
-		  <!-- Warning banner (dismissible; also shown permanently in Settings) -->
-		  <div class="lmt-alert lmt-alert-warn" id="lmt-resize-warn">
-			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-			<div>
-			  <strong>This overwrites files on your server.</strong>
-			  URLs stay the same but the original high-res file is replaced. Enable "Create backup" below to keep a copy before resizing. Backups can be restored one-by-one.
-			</div>
-			<button type="button" class="lmt-alert-dismiss" id="lmt-resize-warn-x" title="Dismiss this notice" aria-label="Dismiss">&times;</button>
-		  </div>
+          <!-- Warning banner (dismissible; also shown permanently in Settings) -->
+          <div class="lmt-alert lmt-alert-warn" id="lmt-resize-warn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <div>
+              <strong>This overwrites files on your server.</strong>
+              URLs stay the same but the original high-res file is replaced. Enable "Create backup" below to keep a copy before resizing. Backups can be restored one-by-one.
+            </div>
+            <button type="button" class="lmt-alert-dismiss" id="lmt-resize-warn-x" title="Dismiss this notice" aria-label="Dismiss">&times;</button>
+          </div>
 
-		  <!-- Controls row -->
-		  <div class="lmt-controls-row" style="margin-top:0;">
+          <!-- Controls row -->
+          <div class="lmt-controls-row" style="margin-top:0;">
 
-			<!-- Resize settings -->
-			<div class="lmt-section lmt-section-panel">
-			  <div class="lmt-section-head">
-				<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-				<span class="lmt-section-title">Resize Settings</span>
-			  </div>
-			  <div class="lmt-section-body">
-				<div class="lmt-radio-group">
-				  <label><input type="radio" name="mlr_size" value="2560"> <span>2560px</span> <em>Max</em></label>
-				  <label><input type="radio" name="mlr_size" value="2400"> <span>2400px</span> <em>Large · hero</em></label>
-				  <label><input type="radio" name="mlr_size" value="1200" checked> <span>1200px</span> <em>Standard</em></label>
-				  <label><input type="radio" name="mlr_size" value="800"> <span>800px</span> <em>Medium</em></label>
-				  <label><input type="radio" name="mlr_size" value="600"> <span>600px</span> <em>Small</em></label>
-				  <label class="lmt-custom-row">
-					<input type="radio" name="mlr_size" value="custom"> <span>Custom</span>
-					<input type="number" id="mlr-custom-px" min="16" max="8000" placeholder="px" class="lmt-custom-input" />
-				  </label>
+            <!-- Resize settings -->
+            <div class="lmt-section lmt-section-panel">
+              <div class="lmt-section-head">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <span class="lmt-section-title">Resize Settings</span>
+              </div>
+              <div class="lmt-section-body">
+                <div class="lmt-radio-group">
+                  <label><input type="radio" name="mlr_size" value="2560"> <span>2560px</span> <em>Max</em></label>
+                  <label><input type="radio" name="mlr_size" value="2400"> <span>2400px</span> <em>Large · hero</em></label>
+                  <label><input type="radio" name="mlr_size" value="1200" checked> <span>1200px</span> <em>Standard</em></label>
+                  <label><input type="radio" name="mlr_size" value="800"> <span>800px</span> <em>Medium</em></label>
+                  <label><input type="radio" name="mlr_size" value="600"> <span>600px</span> <em>Small</em></label>
+                  <label class="lmt-custom-row">
+                    <input type="radio" name="mlr_size" value="custom"> <span>Custom</span>
+                    <input type="number" id="mlr-custom-px" min="16" max="8000" placeholder="px" class="lmt-custom-input" />
+                  </label>
 
-				  <!-- Saved custom sizes (named, reorderable — stored per browser) -->
-				  <div class="lmt-saved-sizes" id="mlr-saved-sizes"></div>
-				</div>
+                  <!-- Saved custom sizes (named, reorderable — stored per browser) -->
+                  <div class="lmt-saved-sizes" id="mlr-saved-sizes"></div>
+                </div>
 
-				<div class="lmt-saved-add">
-				  <input type="text" id="mlr-saved-name" class="lmt-text-input" placeholder="Name (e.g. Blog hero)" maxlength="40" />
-				  <input type="number" id="mlr-saved-px" class="lmt-text-input lmt-saved-px" min="16" max="8000" placeholder="px" />
-				  <button type="button" class="lmt-btn lmt-btn-sm" id="mlr-saved-add-btn">+ Save size</button>
-				</div>
-				<p class="lmt-note">Saved sizes are stored in this browser. Drag the ⠿ handle to reorder.</p>
-			  </div>
-			</div>
+                <div class="lmt-saved-add">
+                  <input type="text" id="mlr-saved-name" class="lmt-text-input" placeholder="Name (e.g. Blog hero)" maxlength="40" />
+                  <input type="number" id="mlr-saved-px" class="lmt-text-input lmt-saved-px" min="16" max="8000" placeholder="px" />
+                  <button type="button" class="lmt-btn lmt-btn-sm" id="mlr-saved-add-btn">+ Save size</button>
+                </div>
+                <p class="lmt-note">Saved sizes are stored in this browser. Drag the ⠿ handle to reorder.</p>
+              </div>
+            </div>
 
-			<!-- Options -->
-			<div class="lmt-section lmt-section-panel">
-			  <div class="lmt-section-head">
-				<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-				<span class="lmt-section-title">Options</span>
-			  </div>
-			  <div class="lmt-section-body">
-				<label class="lmt-label">Output</label>
-				<select id="mlr-output-fmt" class="lmt-select">
-				  <option value="keep">Keep original format (resize in place)</option>
-				  <option value="webp">Convert to WebP (adds a new copy)</option>
-				</select>
-				<p class="lmt-note" id="mlr-output-note">Resizes and overwrites the original file. URLs stay the same.</p>
+            <!-- Options -->
+            <div class="lmt-section lmt-section-panel">
+              <div class="lmt-section-head">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+                <span class="lmt-section-title">Options</span>
+              </div>
+              <div class="lmt-section-body">
+                <label class="lmt-label">Output</label>
+                <select id="mlr-output-fmt" class="lmt-select">
+                  <option value="keep">Keep original format (resize in place)</option>
+                  <option value="webp">Convert to WebP (adds a new copy)</option>
+                </select>
+                <p class="lmt-note" id="mlr-output-note">Resizes and overwrites the original file. URLs stay the same.</p>
 
-				<label class="lmt-label" style="margin-top:14px;">JPEG / WebP Quality: <strong id="mlr-quality-val">82</strong></label>
-				<div class="lmt-quality-row">
-				  <input type="range" id="mlr-quality" min="10" max="100" value="82" step="1" class="lmt-range" />
-				  <span class="lmt-quality-bubble" id="mlr-quality-bubble">82</span>
-				</div>
-				<p class="lmt-note">Applies to JPEG &amp; WebP output. PNG files stay lossless.</p>
+                <label class="lmt-label" style="margin-top:14px;">JPEG / WebP Quality: <strong id="mlr-quality-val">82</strong></label>
+                <div class="lmt-quality-row">
+                  <input type="range" id="mlr-quality" min="10" max="100" value="82" step="1" class="lmt-range" />
+                  <span class="lmt-quality-bubble" id="mlr-quality-bubble">82</span>
+                </div>
+                <p class="lmt-note">Applies to JPEG &amp; WebP output. PNG files stay lossless.</p>
 
-				<label class="lmt-label" style="margin-top:14px;">Filter</label>
-				<select id="mlr-filter" class="lmt-select">
-				  <option value="all">All images</option>
-				  <option value="large">Large images only (&gt;1200px)</option>
-				</select>
+                <label class="lmt-label" style="margin-top:14px;">Filter</label>
+                <select id="mlr-filter" class="lmt-select">
+                  <option value="all">All images</option>
+                  <option value="large">Large images only (&gt;1200px)</option>
+                </select>
 
-				<label class="lmt-toggle-row" style="margin-top:14px;" id="mlr-backup-row">
-				  <input type="checkbox" id="mlr-backup" checked />
-				  <span>Create backup before overwriting</span>
-				</label>
-				<p class="lmt-note" id="mlr-backup-note">Backs up the original file once (can be restored per image).</p>
-			  </div>
-			</div>
+                <label class="lmt-toggle-row" style="margin-top:14px;" id="mlr-backup-row">
+                  <input type="checkbox" id="mlr-backup" checked />
+                  <span>Create backup before overwriting</span>
+                </label>
+                <p class="lmt-note" id="mlr-backup-note">Backs up the original file once (can be restored per image).</p>
+              </div>
+            </div>
 
-		  </div>
+          </div>
 
-		  <!-- Search + action bar -->
-		  <div class="lmt-action-bar">
-			<input type="text" id="mlr-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
-			<button type="button" class="lmt-btn" id="mlr-btn-load">Load Images</button>
-			<button type="button" class="lmt-btn" id="mlr-btn-upload-view">&#8593; Upload Images</button>
-			<button type="button" class="lmt-btn lmt-btn-primary" id="mlr-btn-bulk" disabled>&#9654; Resize Selected</button>
-			<span class="lmt-resize-summary" id="mlr-resize-summary"></span>
-			<button type="button" class="lmt-btn lmt-btn-danger" id="mlr-btn-stop" style="display:none">&#9632; Stop</button>
-			<label class="lmt-toggle-row" style="margin-left:auto;">
-			  <input type="checkbox" id="mlr-select-all" />
-			  <span>Select all</span>
-			</label>
-			<span class="lmt-status-text" id="mlr-status"></span>
-		  </div>
+          <!-- Search + action bar -->
+          <div class="lmt-action-bar">
+            <input type="text" id="mlr-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
+            <button type="button" class="lmt-btn" id="mlr-btn-load">Load Images</button>
+            <button type="button" class="lmt-btn" id="mlr-btn-upload-view">&#8593; Import Media</button>
+            <button type="button" class="lmt-btn lmt-btn-primary" id="mlr-btn-bulk" disabled>&#9654; Resize Selected</button>
+            <span class="lmt-resize-summary" id="mlr-resize-summary"></span>
+            <button type="button" class="lmt-btn lmt-btn-danger" id="mlr-btn-stop" style="display:none">&#9632; Stop</button>
+            <label class="lmt-toggle-row" style="margin-left:auto;">
+              <input type="checkbox" id="mlr-select-all" />
+              <span>Select all</span>
+            </label>
+            <span class="lmt-status-text" id="mlr-status"></span>
+          </div>
 
-		  <!-- View controls: grid/list toggle · size slider · per-page -->
-		  <div class="lmt-view-bar">
-			<div class="lmt-view-toggle" role="group" aria-label="View mode">
-			  <button type="button" class="lmt-view-btn active" id="mlr-view-grid" data-view="grid" title="Grid view">
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-			  </button>
-			  <button type="button" class="lmt-view-btn" id="mlr-view-list" data-view="list" title="List view">
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-			  </button>
-			</div>
-			<div class="lmt-size-control" title="Display size">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-			  <input type="range" id="mlr-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
-			  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
-			</div>
-			<label class="lmt-view-perpage">
-			  <span>Sort</span>
-			  <select id="mlr-sort" class="lmt-select lmt-select-sm">
-				<option value="date_desc" selected>Newest first</option>
-				<option value="date_asc">Oldest first</option>
-				<option value="name_asc">Filename A–Z</option>
-				<option value="name_desc">Filename Z–A</option>
-			  </select>
-			</label>
-			<label class="lmt-view-perpage">
-			  <span>Type</span>
-			  <select id="mlr-type" class="lmt-select lmt-select-sm">
-				<option value="all" selected>All types</option>
-				<option value="jpg">JPG</option>
-				<option value="png">PNG</option>
-				<option value="webp">WebP</option>
-			  </select>
-			</label>
-			<div class="lmt-view-spacer"></div>
-			<label class="lmt-view-perpage">
-			  <span>Show</span>
-			  <select id="mlr-perpage" class="lmt-select lmt-select-sm">
-				<option value="30" selected>30</option>
-				<option value="60">60</option>
-				<option value="100">100</option>
-				<option value="all">All</option>
-			  </select>
-			  <span>per page</span>
-			</label>
-		  </div>
+          <!-- View controls: grid/list toggle · size slider · per-page -->
+          <div class="lmt-view-bar">
+            <div class="lmt-view-toggle" role="group" aria-label="View mode">
+              <button type="button" class="lmt-view-btn active" id="mlr-view-grid" data-view="grid" title="Grid view">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              </button>
+              <button type="button" class="lmt-view-btn" id="mlr-view-list" data-view="list" title="List view">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="lmt-size-control" title="Display size">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              <input type="range" id="mlr-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
+              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
+            </div>
+            <label class="lmt-view-perpage">
+              <span>Sort</span>
+              <select id="mlr-sort" class="lmt-select lmt-select-sm">
+                <option value="date_desc" selected>Newest first</option>
+                <option value="date_asc">Oldest first</option>
+                <option value="name_asc">Filename A–Z</option>
+                <option value="name_desc">Filename Z–A</option>
+              </select>
+            </label>
+            <label class="lmt-view-perpage">
+              <span>Type</span>
+              <select id="mlr-type" class="lmt-select lmt-select-sm">
+                <option value="all" selected>All types</option>
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+              </select>
+            </label>
+            <div class="lmt-view-spacer"></div>
+            <label class="lmt-view-perpage">
+              <span>Show</span>
+              <select id="mlr-perpage" class="lmt-select lmt-select-sm">
+                <option value="30" selected>30</option>
+                <option value="60">60</option>
+                <option value="100">100</option>
+                <option value="all">All</option>
+              </select>
+              <span>per page</span>
+            </label>
+          </div>
 
-		  <!-- Progress -->
-		  <div class="lmt-progress-wrap lmt-hidden" id="mlr-progress-wrap">
-			<div class="lmt-progress-head">
-			  <span id="mlr-progress-label">Processing…</span>
-			  <span id="mlr-progress-pct">0%</span>
-			</div>
-			<div class="lmt-progress-track"><div class="lmt-progress-fill" id="mlr-progress-fill"></div></div>
-			<div class="lmt-progress-sub" id="mlr-progress-count"></div>
-		  </div>
+          <!-- Progress -->
+          <div class="lmt-progress-wrap lmt-hidden" id="mlr-progress-wrap">
+            <div class="lmt-progress-head">
+              <span id="mlr-progress-label">Processing…</span>
+              <span id="mlr-progress-pct">0%</span>
+            </div>
+            <div class="lmt-progress-track"><div class="lmt-progress-fill" id="mlr-progress-fill"></div></div>
+            <div class="lmt-progress-sub" id="mlr-progress-count"></div>
+          </div>
 
-		  <!-- Image grid -->
-		  <div id="mlr-grid-wrap" class="lmt-image-grid-wrap">
-			<div class="lmt-grid-empty">Click "Load Images" to browse your media library, or "Upload Images" to add new ones.</div>
-		  </div>
-		  <div class="lmt-loadmore" id="mlr-loadmore"></div>
-		  <div class="lmt-pagination" id="mlr-pagination"></div>
+          <!-- Image grid -->
+          <div id="mlr-grid-wrap" class="lmt-image-grid-wrap">
+            <div class="lmt-grid-empty">Click "Load Images" to browse your media library, or "Upload Images" to add new ones.</div>
+          </div>
+          <div class="lmt-loadmore" id="mlr-loadmore"></div>
+          <div class="lmt-pagination" id="mlr-pagination"></div>
 
-		  </div><!-- #lmt-library-view -->
+          </div><!-- #lmt-library-view -->
 
-		</div>
-	  </div><!-- #lmt-panel-mlr -->
+        </div>
+      </div><!-- #lmt-panel-mlr -->
 
-	  <!-- ══════════════════════════════════════════
-		   TAB 3 — ALT TEXT MANAGER
-	  ══════════════════════════════════════════ -->
-	  <div class="lmt-panel" id="lmt-panel-alt">
-		<div class="lmt-panel-inner">
+      <!-- ══════════════════════════════════════════
+           TAB 3 — ALT TEXT MANAGER
+      ══════════════════════════════════════════ -->
+      <div class="lmt-panel" id="lmt-panel-alt">
+        <div class="lmt-panel-inner">
 
-		  <!-- Stats row -->
-		  <div class="lmt-stats-row" id="lmt-alt-stats">
-			<div class="lmt-stat-card lmt-stat-clickable" onclick="window.lmtAltFilter('all')" title="Show all images">
-			  <strong id="alt-stat-total">—</strong>
-			  <span>Total Images</span>
-			</div>
-			<div class="lmt-stat-card lmt-stat-green lmt-stat-clickable" onclick="window.lmtAltFilter('has')" title="Show only images that have alt text">
-			  <strong id="alt-stat-has">—</strong>
-			  <span>Have Alt Text</span>
-			  <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-green" id="alt-bar-has" style="width:0%"></div></div>
-			</div>
-			<div class="lmt-stat-card lmt-stat-red lmt-stat-clickable" onclick="window.lmtAltFilter('missing')" title="Show only images missing alt text">
-			  <strong id="alt-stat-missing">—</strong>
-			  <span>Missing Alt Text</span>
-			  <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-red" id="alt-bar-missing" style="width:0%"></div></div>
-			</div>
-		  </div>
+          <!-- Stats row -->
+          <div class="lmt-stats-row" id="lmt-alt-stats">
+            <div class="lmt-stat-card lmt-stat-clickable" onclick="window.lmtAltFilter('all')" title="Show all images">
+              <strong id="alt-stat-total">—</strong>
+              <span>Total Images</span>
+            </div>
+            <div class="lmt-stat-card lmt-stat-green lmt-stat-clickable" onclick="window.lmtAltFilter('has')" title="Show only images that have alt text">
+              <strong id="alt-stat-has">—</strong>
+              <span>Have Alt Text</span>
+              <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-green" id="alt-bar-has" style="width:0%"></div></div>
+            </div>
+            <div class="lmt-stat-card lmt-stat-red lmt-stat-clickable" onclick="window.lmtAltFilter('missing')" title="Show only images missing alt text">
+              <strong id="alt-stat-missing">—</strong>
+              <span>Missing Alt Text</span>
+              <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-red" id="alt-bar-missing" style="width:0%"></div></div>
+            </div>
+          </div>
 
-		  <!-- AI banner -->
-		  <div class="lmt-ai-banner" id="lmt-ai-banner">
-			<div class="lmt-ai-banner-icon">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 8v4l3 3"/><path d="M18 2l4 4-4 4"/><path d="M22 2l-4 4"/></svg>
-			</div>
-			<div class="lmt-ai-banner-text">
-			  <strong>AI Alt Text via AWS Bedrock (Nova Lite Vision)</strong>
-			  <span id="lmt-ai-status-msg">Checking API key…</span>
-			</div>
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=lookit-media-master-settings' ) ); ?>" class="lmt-btn lmt-btn-sm" id="lmt-ai-settings-link">⚙ Settings</a>
-		  </div>
+          <!-- AI banner -->
+          <div class="lmt-ai-banner" id="lmt-ai-banner">
+            <div class="lmt-ai-banner-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 8v4l3 3"/><path d="M18 2l4 4-4 4"/><path d="M22 2l-4 4"/></svg>
+            </div>
+            <div class="lmt-ai-banner-text">
+              <strong>AI Alt Text via AWS Bedrock (Nova Lite Vision)</strong>
+              <span id="lmt-ai-status-msg">Checking API key…</span>
+            </div>
+            <a href="<?php echo esc_url( admin_url('admin.php?page=lookit-media-master-settings') ); ?>" class="lmt-btn lmt-btn-sm" id="lmt-ai-settings-link">⚙ Settings</a>
+          </div>
 
-		  <!-- Toolbar -->
-		  <div class="lmt-action-bar">
-			<input type="text" id="alt-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
-			<select id="alt-filter" class="lmt-select lmt-select-sm">
-			  <option value="all">All images</option>
-			  <option value="has">Have alt only</option>
-			  <option value="missing">Missing alt only</option>
-			</select>
-			<button class="lmt-btn" id="alt-refresh-btn">↺ Refresh</button>
-			<button type="button" class="lmt-filter-chip" id="alt-chip-missing" title="Select all loaded images that are missing alt text, and jump to the first">⚠ Select missing alt</button>
-			<label class="lmt-toggle-row">
-			  <input type="checkbox" id="alt-select-all">
-			  <span>Select all on page</span>
-			</label>
-			<div style="flex:1"></div>
-			<label class="lmt-toggle-row">
-			  <input type="checkbox" id="alt-overwrite">
-			  <span>Overwrite existing</span>
-			</label>
-			<button class="lmt-btn" id="alt-title-bulk-btn" title="Use each image's title as its alt text for all selected images" disabled>&#128221; Use Title as Alt (Selected)</button>
-			<button class="lmt-btn lmt-btn-primary" id="alt-save-bulk-btn" title="Save the current alt text field for every selected image" disabled>&#128190; Save (Selected)</button>
-			<button class="lmt-btn lmt-btn-ai" id="alt-ai-bulk-btn" disabled>&#10024; AI Generate (Selected)</button>
-			<button class="lmt-btn lmt-btn-danger" id="alt-stop-btn" style="display:none">&#9632; Stop</button>
-		  </div>
+          <!-- Toolbar -->
+          <div class="lmt-action-bar">
+            <input type="text" id="alt-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
+            <select id="alt-filter" class="lmt-select lmt-select-sm">
+              <option value="all">All images</option>
+              <option value="has">Have alt only</option>
+              <option value="missing">Missing alt only</option>
+            </select>
+            <button class="lmt-btn" id="alt-refresh-btn">↺ Refresh</button>
+            <button type="button" class="lmt-filter-chip" id="alt-chip-missing" title="Select all loaded images that are missing alt text, and jump to the first">⚠ Select missing alt</button>
+            <label class="lmt-toggle-row">
+              <input type="checkbox" id="alt-select-all">
+              <span>Select all on page</span>
+            </label>
+            <div style="flex:1"></div>
+            <label class="lmt-toggle-row">
+              <input type="checkbox" id="alt-overwrite">
+              <span>Overwrite existing</span>
+            </label>
+            <button class="lmt-btn" id="alt-title-bulk-btn" title="Use each image's title as its alt text for all selected images" disabled>&#128221; Use Title as Alt (Selected)</button>
+            <button class="lmt-btn lmt-btn-primary" id="alt-save-bulk-btn" title="Save the current alt text field for every selected image" disabled>&#128190; Save (Selected)</button>
+            <button class="lmt-btn lmt-btn-ai" id="alt-ai-bulk-btn" disabled>&#10024; AI Generate (Selected)</button>
+            <button class="lmt-btn lmt-btn-danger" id="alt-stop-btn" style="display:none">&#9632; Stop</button>
+          </div>
 
-		  <!-- View controls: grid/list toggle · size slider · per-page -->
-		  <div class="lmt-view-bar">
-			<div class="lmt-view-toggle" role="group" aria-label="View mode">
-			  <button type="button" class="lmt-view-btn active" id="alt-view-grid" data-view="grid" title="Grid view">
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-			  </button>
-			  <button type="button" class="lmt-view-btn" id="alt-view-list" data-view="list" title="List view">
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-			  </button>
-			</div>
-			<div class="lmt-size-control" title="Display size">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-			  <input type="range" id="alt-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
-			  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
-			</div>
-			<label class="lmt-view-perpage">
-			  <span>Sort</span>
-			  <select id="alt-sort" class="lmt-select lmt-select-sm">
-				<option value="date_desc" selected>Newest first</option>
-				<option value="date_asc">Oldest first</option>
-				<option value="name_asc">Filename A–Z</option>
-				<option value="name_desc">Filename Z–A</option>
-			  </select>
-			</label>
-			<label class="lmt-view-perpage">
-			  <span>Type</span>
-			  <select id="alt-type" class="lmt-select lmt-select-sm">
-				<option value="all" selected>All types</option>
-				<option value="jpg">JPG</option>
-				<option value="png">PNG</option>
-				<option value="webp">WebP</option>
-			  </select>
-			</label>
-			<div class="lmt-view-spacer"></div>
-			<label class="lmt-view-perpage">
-			  <span>Show</span>
-			  <select id="alt-perpage" class="lmt-select lmt-select-sm">
-				<option value="30" selected>30</option>
-				<option value="60">60</option>
-				<option value="100">100</option>
-				<option value="all">All</option>
-			  </select>
-			  <span>per page</span>
-			</label>
-		  </div>
+          <!-- View controls: grid/list toggle · size slider · per-page -->
+          <div class="lmt-view-bar">
+            <div class="lmt-view-toggle" role="group" aria-label="View mode">
+              <button type="button" class="lmt-view-btn active" id="alt-view-grid" data-view="grid" title="Grid view">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              </button>
+              <button type="button" class="lmt-view-btn" id="alt-view-list" data-view="list" title="List view">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="lmt-size-control" title="Display size">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              <input type="range" id="alt-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
+              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
+            </div>
+            <label class="lmt-view-perpage">
+              <span>Sort</span>
+              <select id="alt-sort" class="lmt-select lmt-select-sm">
+                <option value="date_desc" selected>Newest first</option>
+                <option value="date_asc">Oldest first</option>
+                <option value="name_asc">Filename A–Z</option>
+                <option value="name_desc">Filename Z–A</option>
+              </select>
+            </label>
+            <label class="lmt-view-perpage">
+              <span>Type</span>
+              <select id="alt-type" class="lmt-select lmt-select-sm">
+                <option value="all" selected>All types</option>
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+              </select>
+            </label>
+            <div class="lmt-view-spacer"></div>
+            <label class="lmt-view-perpage">
+              <span>Show</span>
+              <select id="alt-perpage" class="lmt-select lmt-select-sm">
+                <option value="30" selected>30</option>
+                <option value="60">60</option>
+                <option value="100">100</option>
+                <option value="all">All</option>
+              </select>
+              <span>per page</span>
+            </label>
+          </div>
 
-		  <!-- Progress -->
-		  <div class="lmt-progress-wrap lmt-hidden" id="alt-progress-wrap">
-			<div class="lmt-progress-head">
-			  <span id="alt-progress-label">Processing…</span>
-			  <span id="alt-progress-pct">0%</span>
-			</div>
-			<div class="lmt-progress-track"><div class="lmt-progress-fill" id="alt-progress-fill"></div></div>
-			<div class="lmt-progress-sub" id="alt-progress-count"></div>
-			<div class="lmt-log" id="alt-log"></div>
-		  </div>
+          <!-- Progress -->
+          <div class="lmt-progress-wrap lmt-hidden" id="alt-progress-wrap">
+            <div class="lmt-progress-head">
+              <span id="alt-progress-label">Processing…</span>
+              <span id="alt-progress-pct">0%</span>
+            </div>
+            <div class="lmt-progress-track"><div class="lmt-progress-fill" id="alt-progress-fill"></div></div>
+            <div class="lmt-progress-sub" id="alt-progress-count"></div>
+            <div class="lmt-log" id="alt-log"></div>
+          </div>
 
-		  <!-- Grid -->
-		  <div id="alt-grid-wrap" class="lmt-image-grid-wrap">
-			<div class="lmt-grid-empty">Loading images…</div>
-		  </div>
-		  <div class="lmt-loadmore" id="alt-loadmore"></div>
-		  <div class="lmt-pagination" id="alt-pagination"></div>
+          <!-- Grid -->
+          <div id="alt-grid-wrap" class="lmt-image-grid-wrap">
+            <div class="lmt-grid-empty">Loading images…</div>
+          </div>
+          <div class="lmt-loadmore" id="alt-loadmore"></div>
+          <div class="lmt-pagination" id="alt-pagination"></div>
 
-		</div>
-	  </div><!-- #lmt-panel-alt -->
+        </div>
+      </div><!-- #lmt-panel-alt -->
 
-	  <!-- ══════════════════════════════════════════
-		   TAB 4 — TITLE MANAGER
-		   Same UX as Alt Manager but edits post_title.
-		   "Auto" = WordPress's default filename-as-title.
-		   "Custom" = anything human-edited.
-	  ══════════════════════════════════════════ -->
-	  <div class="lmt-panel" id="lmt-panel-title">
-		<div class="lmt-panel-inner">
+      <!-- ══════════════════════════════════════════
+           TAB 4 — TITLE MANAGER
+           Same UX as Alt Manager but edits post_title.
+           "Auto" = WordPress's default filename-as-title.
+           "Custom" = anything human-edited.
+      ══════════════════════════════════════════ -->
+      <div class="lmt-panel" id="lmt-panel-title">
+        <div class="lmt-panel-inner">
 
-		  <!-- Stats row -->
-		  <div class="lmt-stats-row" id="lmt-title-stats">
-			<div class="lmt-stat-card lmt-stat-clickable" onclick="window.lmtTitleFilter('all')" title="Show all images">
-			  <strong id="title-stat-total">—</strong>
-			  <span>Total Images</span>
-			</div>
-			<div class="lmt-stat-card lmt-stat-green lmt-stat-clickable" onclick="window.lmtTitleFilter('custom')" title="Show only images with a custom title">
-			  <strong id="title-stat-custom">—</strong>
-			  <span>Custom Titles</span>
-			  <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-green" id="title-bar-custom" style="width:0%"></div></div>
-			</div>
-			<div class="lmt-stat-card lmt-stat-red lmt-stat-clickable" onclick="window.lmtTitleFilter('auto')" title="Show only images with an auto (filename) title">
-			  <strong id="title-stat-auto">—</strong>
-			  <span>Auto (Filename) Titles</span>
-			  <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-red" id="title-bar-auto" style="width:0%"></div></div>
-			</div>
-		  </div>
+          <!-- Stats row -->
+          <div class="lmt-stats-row" id="lmt-title-stats">
+            <div class="lmt-stat-card lmt-stat-clickable" onclick="window.lmtTitleFilter('all')" title="Show all images">
+              <strong id="title-stat-total">—</strong>
+              <span>Total Images</span>
+            </div>
+            <div class="lmt-stat-card lmt-stat-green lmt-stat-clickable" onclick="window.lmtTitleFilter('custom')" title="Show only images with a custom title">
+              <strong id="title-stat-custom">—</strong>
+              <span>Custom Titles</span>
+              <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-green" id="title-bar-custom" style="width:0%"></div></div>
+            </div>
+            <div class="lmt-stat-card lmt-stat-red lmt-stat-clickable" onclick="window.lmtTitleFilter('auto')" title="Show only images with an auto (filename) title">
+              <strong id="title-stat-auto">—</strong>
+              <span>Auto (Filename) Titles</span>
+              <div class="lmt-stat-bar-wrap"><div class="lmt-stat-bar lmt-stat-bar-red" id="title-bar-auto" style="width:0%"></div></div>
+            </div>
+          </div>
 
-		  <!-- AI banner -->
-		  <div class="lmt-ai-banner" id="lmt-ai-banner-title">
-			<div class="lmt-ai-banner-icon">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 8v4l3 3"/><path d="M18 2l4 4-4 4"/><path d="M22 2l-4 4"/></svg>
-			</div>
-			<div class="lmt-ai-banner-text">
-			  <strong>AI Image Titles via AWS Bedrock (Nova Lite Vision)</strong>
-			  <span id="lmt-ai-status-msg-title">Checking API key…</span>
-			</div>
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=lookit-media-master-settings' ) ); ?>" class="lmt-btn lmt-btn-sm">⚙ Settings</a>
-		  </div>
+          <!-- AI banner -->
+          <div class="lmt-ai-banner" id="lmt-ai-banner-title">
+            <div class="lmt-ai-banner-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 8v4l3 3"/><path d="M18 2l4 4-4 4"/><path d="M22 2l-4 4"/></svg>
+            </div>
+            <div class="lmt-ai-banner-text">
+              <strong>AI Image Titles via AWS Bedrock (Nova Lite Vision)</strong>
+              <span id="lmt-ai-status-msg-title">Checking API key…</span>
+            </div>
+            <a href="<?php echo esc_url( admin_url('admin.php?page=lookit-media-master-settings') ); ?>" class="lmt-btn lmt-btn-sm">⚙ Settings</a>
+          </div>
 
-		  <!-- Toolbar -->
-		  <div class="lmt-action-bar">
-			<input type="text" id="title-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
-			<select id="title-filter" class="lmt-select lmt-select-sm">
-			  <option value="all">All images</option>
-			  <option value="custom">Custom titles only</option>
-			  <option value="auto">Auto titles only</option>
-			</select>
-			<button class="lmt-btn" id="title-refresh-btn">↺ Refresh</button>
-			<button type="button" class="lmt-filter-chip" id="title-chip-auto" title="Select all loaded images that still have an auto (filename) title, and jump to the first">⚠ Select auto titles</button>
-			<label class="lmt-toggle-row">
-			  <input type="checkbox" id="title-select-all">
-			  <span>Select all on page</span>
-			</label>
-			<div style="flex:1"></div>
-			<label class="lmt-toggle-row">
-			  <input type="checkbox" id="title-overwrite">
-			  <span>Overwrite custom titles</span>
-			</label>
-			<button class="lmt-btn" id="title-filename-bulk-btn" title="Use the filename (with dashes/underscores replaced by spaces) as the title for all selected images" disabled>&#128221; Auto-Title from Filename (Selected)</button>
-			<button class="lmt-btn lmt-btn-primary" id="title-save-bulk-btn" title="Save the current title field for every selected image" disabled>&#128190; Save (Selected)</button>
-			<button class="lmt-btn lmt-btn-ai" id="title-ai-bulk-btn" disabled>&#10024; AI Generate (Selected)</button>
-			<button class="lmt-btn lmt-btn-danger" id="title-stop-btn" style="display:none">&#9632; Stop</button>
-		  </div>
+          <!-- Toolbar -->
+          <div class="lmt-action-bar">
+            <input type="text" id="title-search" placeholder="Search by filename…" class="lmt-text-input lmt-search-input" />
+            <select id="title-filter" class="lmt-select lmt-select-sm">
+              <option value="all">All images</option>
+              <option value="custom">Custom titles only</option>
+              <option value="auto">Auto titles only</option>
+            </select>
+            <button class="lmt-btn" id="title-refresh-btn">↺ Refresh</button>
+            <button type="button" class="lmt-filter-chip" id="title-chip-auto" title="Select all loaded images that still have an auto (filename) title, and jump to the first">⚠ Select auto titles</button>
+            <label class="lmt-toggle-row">
+              <input type="checkbox" id="title-select-all">
+              <span>Select all on page</span>
+            </label>
+            <div style="flex:1"></div>
+            <label class="lmt-toggle-row">
+              <input type="checkbox" id="title-overwrite">
+              <span>Overwrite custom titles</span>
+            </label>
+            <button class="lmt-btn" id="title-filename-bulk-btn" title="Use the filename (with dashes/underscores replaced by spaces) as the title for all selected images" disabled>&#128221; Auto-Title from Filename (Selected)</button>
+            <button class="lmt-btn lmt-btn-primary" id="title-save-bulk-btn" title="Save the current title field for every selected image" disabled>&#128190; Save (Selected)</button>
+            <button class="lmt-btn lmt-btn-ai" id="title-ai-bulk-btn" disabled>&#10024; AI Generate (Selected)</button>
+            <button class="lmt-btn lmt-btn-danger" id="title-stop-btn" style="display:none">&#9632; Stop</button>
+          </div>
 
-		  <!-- View controls: grid/list toggle · size slider · per-page -->
-		  <div class="lmt-view-bar">
-			<div class="lmt-view-toggle" role="group" aria-label="View mode">
-			  <button type="button" class="lmt-view-btn active" id="title-view-grid" data-view="grid" title="Grid view">
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-			  </button>
-			  <button type="button" class="lmt-view-btn" id="title-view-list" data-view="list" title="List view">
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-			  </button>
-			</div>
-			<div class="lmt-size-control" title="Display size">
-			  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-			  <input type="range" id="title-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
-			  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
-			</div>
-			<label class="lmt-view-perpage">
-			  <span>Sort</span>
-			  <select id="title-sort" class="lmt-select lmt-select-sm">
-				<option value="date_desc" selected>Newest first</option>
-				<option value="date_asc">Oldest first</option>
-				<option value="name_asc">Filename A–Z</option>
-				<option value="name_desc">Filename Z–A</option>
-			  </select>
-			</label>
-			<label class="lmt-view-perpage">
-			  <span>Type</span>
-			  <select id="title-type" class="lmt-select lmt-select-sm">
-				<option value="all" selected>All types</option>
-				<option value="jpg">JPG</option>
-				<option value="png">PNG</option>
-				<option value="webp">WebP</option>
-			  </select>
-			</label>
-			<div class="lmt-view-spacer"></div>
-			<label class="lmt-view-perpage">
-			  <span>Show</span>
-			  <select id="title-perpage" class="lmt-select lmt-select-sm">
-				<option value="30" selected>30</option>
-				<option value="60">60</option>
-				<option value="100">100</option>
-				<option value="all">All</option>
-			  </select>
-			  <span>per page</span>
-			</label>
-		  </div>
+          <!-- View controls: grid/list toggle · size slider · per-page -->
+          <div class="lmt-view-bar">
+            <div class="lmt-view-toggle" role="group" aria-label="View mode">
+              <button type="button" class="lmt-view-btn active" id="title-view-grid" data-view="grid" title="Grid view">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              </button>
+              <button type="button" class="lmt-view-btn" id="title-view-list" data-view="list" title="List view">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="lmt-size-control" title="Display size">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              <input type="range" id="title-size" class="lmt-range lmt-size-range" min="140" max="360" value="200" step="20" />
+              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
+            </div>
+            <label class="lmt-view-perpage">
+              <span>Sort</span>
+              <select id="title-sort" class="lmt-select lmt-select-sm">
+                <option value="date_desc" selected>Newest first</option>
+                <option value="date_asc">Oldest first</option>
+                <option value="name_asc">Filename A–Z</option>
+                <option value="name_desc">Filename Z–A</option>
+              </select>
+            </label>
+            <label class="lmt-view-perpage">
+              <span>Type</span>
+              <select id="title-type" class="lmt-select lmt-select-sm">
+                <option value="all" selected>All types</option>
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+              </select>
+            </label>
+            <div class="lmt-view-spacer"></div>
+            <label class="lmt-view-perpage">
+              <span>Show</span>
+              <select id="title-perpage" class="lmt-select lmt-select-sm">
+                <option value="30" selected>30</option>
+                <option value="60">60</option>
+                <option value="100">100</option>
+                <option value="all">All</option>
+              </select>
+              <span>per page</span>
+            </label>
+          </div>
 
-		  <!-- Progress -->
-		  <div class="lmt-progress-wrap lmt-hidden" id="title-progress-wrap">
-			<div class="lmt-progress-head">
-			  <span id="title-progress-label">Processing…</span>
-			  <span id="title-progress-pct">0%</span>
-			</div>
-			<div class="lmt-progress-track"><div class="lmt-progress-fill" id="title-progress-fill"></div></div>
-			<div class="lmt-progress-sub" id="title-progress-count"></div>
-			<div class="lmt-log" id="title-log"></div>
-		  </div>
+          <!-- Progress -->
+          <div class="lmt-progress-wrap lmt-hidden" id="title-progress-wrap">
+            <div class="lmt-progress-head">
+              <span id="title-progress-label">Processing…</span>
+              <span id="title-progress-pct">0%</span>
+            </div>
+            <div class="lmt-progress-track"><div class="lmt-progress-fill" id="title-progress-fill"></div></div>
+            <div class="lmt-progress-sub" id="title-progress-count"></div>
+            <div class="lmt-log" id="title-log"></div>
+          </div>
 
-		  <!-- Grid -->
-		  <div id="title-grid-wrap" class="lmt-image-grid-wrap">
-			<div class="lmt-grid-empty">Loading images…</div>
-		  </div>
-		  <div class="lmt-loadmore" id="title-loadmore"></div>
-		  <div class="lmt-pagination" id="title-pagination"></div>
+          <!-- Grid -->
+          <div id="title-grid-wrap" class="lmt-image-grid-wrap">
+            <div class="lmt-grid-empty">Loading images…</div>
+          </div>
+          <div class="lmt-loadmore" id="title-loadmore"></div>
+          <div class="lmt-pagination" id="title-pagination"></div>
 
-		</div>
-	  </div><!-- #lmt-panel-title -->
+        </div>
+      </div><!-- #lmt-panel-title -->
 
-	</div><!-- .lmt-wrap -->
-	</div><!-- .wrap -->
-	<?php
+      <!-- ══════════════════════════════════════════
+           TAB 4 — EXPORT  (v3.17.0)
+           Filter the library, build a ZIP server-side in batches,
+           download it. Nothing here calls an external service.
+      ══════════════════════════════════════════ -->
+      <div class="lmt-panel" id="lmt-panel-export">
+        <div class="lmt-panel-inner">
+
+          <?php if ( ! class_exists( 'ZipArchive' ) ) : ?>
+          <div class="lmt-alert lmt-alert-warn">
+            <strong>ZipArchive is not installed on this server.</strong>
+            Exports need the PHP zip extension. Ask your host to enable it, then reload this page.
+          </div>
+          <?php endif; ?>
+
+          <div class="lmt-section">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title">What to export</span>
+              <span class="lmt-section-desc">Pick a media type, narrow it down, and we build the ZIP</span>
+            </div>
+            <div class="lmt-section-body">
+              <div class="lmt-controls-row">
+                <label class="lmt-label" for="exp-type">Media type</label>
+                <select id="exp-type" class="lmt-select lmt-select-sm">
+                  <option value="all">All media</option>
+                  <option value="image" selected>Images</option>
+                  <option value="audio">Audio</option>
+                  <option value="video">Video</option>
+                  <option value="document">Documents</option>
+                  <option value="archive">Archives</option>
+                  <option value="other">Other files</option>
+                </select>
+
+                <label class="lmt-label" for="exp-range" style="margin-left:14px">Date range</label>
+                <select id="exp-range" class="lmt-select lmt-select-sm">
+                  <option value="all">All time</option>
+                  <option value="30">Last 30 days</option>
+                  <option value="365">Last 12 months</option>
+                  <?php
+                  // Years actually present for the default media type; the list is
+                  // refreshed from the server whenever the type changes.
+                  foreach ( lmt_export_years( 'image' ) as $lmt_y ) {
+                      echo '<option value="year:' . esc_attr( $lmt_y ) . '">' . esc_html( $lmt_y ) . '</option>';
+                  }
+                  ?>
+                </select>
+
+                <label class="lmt-label" for="exp-attached" style="margin-left:14px">Attachment</label>
+                <select id="exp-attached" class="lmt-select lmt-select-sm">
+                  <option value="any">Any</option>
+                  <option value="attached">Attached to a post</option>
+                  <option value="unattached">Unattached only</option>
+                </select>
+
+                <div style="flex:1"></div>
+                <input type="text" id="exp-search" class="lmt-text-input lmt-search-input" placeholder="Filename contains&hellip;" />
+              </div>
+
+              <div class="lmt-x-summary">
+                <div class="lmt-x-summary-main">
+                  <strong id="exp-count">Counting&hellip;</strong>
+                  <span class="lmt-x-dot"></span>
+                  <span id="exp-size">&mdash;</span>
+                </div>
+                <button type="button" class="lmt-filter-chip" id="exp-refresh">&#8635; Recount</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lmt-section">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title">ZIP options</span>
+              <span class="lmt-section-desc">How the archive is put together</span>
+            </div>
+            <div class="lmt-section-body">
+              <div class="lmt-controls-row">
+                <label class="lmt-label" for="exp-folders">Folder structure</label>
+                <select id="exp-folders" class="lmt-select lmt-select-sm" style="min-width:250px">
+                  <option value="parent" selected>Group by uploaded-to page</option>
+                  <option value="uploads">Match uploads folders (/2026/08/)</option>
+                  <option value="flat">Flat &mdash; all files in one folder</option>
+                  <option value="type">Grouped by media type</option>
+                </select>
+
+                <label class="lmt-label" for="exp-split" style="margin-left:14px">Split archive</label>
+                <select id="exp-split" class="lmt-select lmt-select-sm">
+                  <option value="0">Single ZIP</option>
+                  <option value="500">Split every 500 MB</option>
+                  <option value="1024" selected>Split every 1 GB</option>
+                  <option value="2048">Split every 2 GB</option>
+                </select>
+              </div>
+
+              <p class="lmt-note" id="exp-folders-note">
+                Files land in a folder named after the page or post they were uploaded to, plus its ID
+                (for example <code>free-hep-b-screening-korean-community-services-8842/</code>).
+                Anything unattached goes in <code>_unattached/</code>.
+              </p>
+
+              <div class="lmt-controls-row" style="margin-top:4px">
+                <label class="lmt-toggle-row"><input type="checkbox" id="exp-originals" checked><span>Original files only (skip generated thumbnail sizes)</span></label>
+                <label class="lmt-toggle-row"><input type="checkbox" id="exp-csv" checked><span>Include metadata CSV (alt text, caption, uploaded-to page and URL)</span></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="lmt-action-bar">
+            <button type="button" class="lmt-btn lmt-btn-primary" id="exp-build-btn">&#11015; Build ZIP</button>
+            <button type="button" class="lmt-btn lmt-btn-danger" id="exp-stop-btn" style="display:none">&#9632; Stop</button>
+            <span class="lmt-status-text" id="exp-status">Keep this tab open while the archive builds.</span>
+          </div>
+
+          <div class="lmt-progress-wrap lmt-hidden" id="exp-progress-wrap">
+            <div class="lmt-progress-head">
+              <span id="exp-progress-label">Packaging files&hellip;</span>
+              <span id="exp-progress-pct">0%</span>
+            </div>
+            <div class="lmt-progress-track"><div class="lmt-progress-fill" id="exp-progress-fill"></div></div>
+            <div class="lmt-progress-sub" id="exp-progress-count"></div>
+          </div>
+
+          <div class="lmt-section" style="margin-top:14px">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title">Recent exports</span>
+              <span class="lmt-section-desc">Built archives are deleted automatically after 7 days</span>
+            </div>
+            <div class="lmt-x-list" id="exp-jobs">
+              <div class="lmt-grid-empty">Loading&hellip;</div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- #lmt-panel-export -->
+
+
+      <!-- ══════════════════════════════════════════
+           TAB 5 — IMPORT  (v3.19.0)
+           Upload any media type into the Media Library. Images are
+           resized and compressed in the browser first; everything
+           else is stored as-is.
+      ══════════════════════════════════════════ -->
+      <div class="lmt-panel" id="lmt-panel-import">
+        <div class="lmt-panel-inner">
+
+          <div class="lmt-section lmt-dropzone-section">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title">Add files</span>
+              <span class="lmt-section-desc">Images, video, audio, documents, archives &mdash; nothing uploads until you click Import</span>
+            </div>
+            <div class="lmt-dropzone" id="imp-drop">
+              <div class="lmt-drop-icon-ring">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <p class="lmt-drop-title"><span>Click to browse</span> or drag &amp; drop any media here</p>
+              <p class="lmt-drop-note" id="imp-limits">JPG &middot; PNG &middot; WebP &middot; MP4 &middot; MP3 &middot; PDF &middot; DOCX &middot; XLSX &middot; ZIP &mdash; single or batch</p>
+              <input id="imp-input" type="file" multiple />
+            </div>
+          </div>
+
+          <div class="lmt-section">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title">Images</span>
+              <span class="lmt-section-desc">Shrunk in your browser before upload, so nothing oversized reaches the server</span>
+            </div>
+            <div class="lmt-section-body">
+              <div class="lmt-controls-row">
+                <label class="lmt-label" for="imp-img-mode">Handling</label>
+                <select id="imp-img-mode" class="lmt-select lmt-select-sm" style="min-width:220px">
+                  <option value="compress" selected>Resize &amp; compress</option>
+                  <option value="asis">Upload as-is</option>
+                </select>
+
+                <label class="lmt-label" for="imp-img-size" style="margin-left:14px">Longest edge</label>
+                <select id="imp-img-size" class="lmt-select lmt-select-sm">
+                  <option value="2400">2400px &mdash; hero / slider</option>
+                  <option value="1200" selected>1200px &mdash; standard</option>
+                  <option value="800">800px &mdash; blog</option>
+                  <option value="600">600px &mdash; inline / grid</option>
+                  <option value="0">Don't resize</option>
+                </select>
+
+                <label class="lmt-label" for="imp-img-fmt" style="margin-left:14px">Format</label>
+                <select id="imp-img-fmt" class="lmt-select lmt-select-sm">
+                  <option value="KEEP" selected>Keep original</option>
+                  <option value="JPEG">JPEG</option>
+                  <option value="WEBP">WebP</option>
+                  <option value="PNG">PNG</option>
+                </select>
+              </div>
+
+              <div class="lmt-quality-row" id="imp-img-quality-row">
+                <label class="lmt-label" for="imp-img-quality">Quality</label>
+                <input type="range" id="imp-img-quality" class="lmt-range" min="40" max="100" value="82" />
+                <span class="lmt-quality-bubble" id="imp-img-quality-bubble">82</span>
+                <span class="lmt-note" style="margin:0">Lower = smaller file. Recommended: 75&ndash;90.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="lmt-action-bar">
+            <button type="button" class="lmt-btn lmt-btn-primary" id="imp-run-btn" disabled>&#8593; Import to Media Library</button>
+            <button type="button" class="lmt-btn" id="imp-clear-btn" disabled>Clear list</button>
+            <button type="button" class="lmt-btn lmt-btn-danger" id="imp-stop-btn" style="display:none">&#9632; Stop</button>
+            <div style="flex:1"></div>
+            <span class="lmt-status-text" id="imp-status">No files chosen yet.</span>
+          </div>
+
+          <div class="lmt-progress-wrap lmt-hidden" id="imp-progress-wrap">
+            <div class="lmt-progress-head">
+              <span id="imp-progress-label">Uploading&hellip;</span>
+              <span id="imp-progress-pct">0%</span>
+            </div>
+            <div class="lmt-progress-track"><div class="lmt-progress-fill" id="imp-progress-fill"></div></div>
+            <div class="lmt-progress-sub" id="imp-progress-count"></div>
+          </div>
+
+          <div class="lmt-section" style="margin-top:14px">
+            <div class="lmt-section-head">
+              <span class="lmt-section-title" id="imp-queue-title">Queue</span>
+              <span class="lmt-section-desc">Files are uploaded one at a time so a big batch can't time out</span>
+            </div>
+            <div class="lmt-x-list" id="imp-queue">
+              <div class="lmt-grid-empty">Nothing queued. Drop files above to get started.</div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- #lmt-panel-import -->
+
+
+    </div><!-- .lmt-wrap -->
+    </div><!-- .wrap -->
+    <?php
 }
