@@ -107,6 +107,7 @@ class Test_Lookit_Media_Master_Export extends WP_UnitTestCase {
 
 	public function test_filters_select_type_year_attachment_and_search() {
 		$author = self::factory()->user->create( array( 'role' => 'author' ) );
+		wp_set_current_user( $author );
 		$parent = self::factory()->post->create( array( 'post_author' => $author ) );
 		$image  = $this->create_attachment_file( $author, 'filter-image.jpg', 'image/jpeg', 'Needle image' );
 		$audio  = $this->create_attachment_file( $author, 'filter-audio.mp3', 'audio/mpeg', 'Other media' );
@@ -161,8 +162,11 @@ class Test_Lookit_Media_Master_Export extends WP_UnitTestCase {
 
 	public function test_export_years_and_archive_name_reflect_library_filters() {
 		$author = self::factory()->user->create( array( 'role' => 'author' ) );
+		$other  = self::factory()->user->create( array( 'role' => 'author' ) );
+		wp_set_current_user( $author );
 		$older  = $this->create_attachment_file( $author, 'older.jpg', 'image/jpeg' );
 		$newer  = $this->create_attachment_file( $author, 'newer.jpg', 'image/jpeg' );
+		$hidden = $this->create_attachment_file( $other, 'hidden.jpg', 'image/jpeg' );
 		wp_update_post(
 			array(
 				'ID'        => $older,
@@ -175,7 +179,13 @@ class Test_Lookit_Media_Master_Export extends WP_UnitTestCase {
 				'post_date' => '2020-08-01 12:00:00',
 			)
 		);
-		delete_transient( 'lmt_export_years_image' );
+		wp_update_post(
+			array(
+				'ID'        => $hidden,
+				'post_date' => '2016-08-01 12:00:00',
+			)
+		);
+		delete_transient( 'lmt_export_years_image_user_' . $author );
 
 		$this->assertSame( array( 2020, 2018 ), lmt_export_years( 'image' ) );
 

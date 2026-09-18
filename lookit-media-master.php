@@ -1064,7 +1064,8 @@ add_action( 'wp_ajax_lmt_alt_get_all_ids', function () {
 ),
         );
     }
-    $ids = array_values( array_filter( ( new WP_Query( $args ) )->posts, 'lmt_user_can_edit_attachment' ) );
+    $args = lmt_scope_attachment_query_args( $args );
+    $ids  = array_values( array_filter( ( new WP_Query( $args ) )->posts, 'lmt_user_can_edit_attachment' ) );
     wp_send_json_success( array(
 'ids' => $ids,
 'total' => count( $ids )
@@ -2558,7 +2559,8 @@ function lmt_export_other_mimes() {
  * dropdown, so a library with documents from 2017 actually offers 2017.
  */
 function lmt_export_years( $type ) {
-    $key    = 'lmt_export_years_' . $type;
+    $scope  = current_user_can( 'edit_others_posts' ) ? 'all' : 'user_' . get_current_user_id();
+    $key    = 'lmt_export_years_' . $type . '_' . $scope;
     $cached = get_transient( $key );
     if ( is_array( $cached ) ) {
         return $cached;
@@ -2651,7 +2653,7 @@ function lmt_export_query_args( array $f ) {
         $args['s'] = sanitize_text_field( $f['search'] );
     }
 
-    return $args;
+    return lmt_scope_attachment_query_args( $args );
 }
 
 /** Keep only attachments the current user may edit. */
