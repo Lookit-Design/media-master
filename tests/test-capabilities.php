@@ -37,6 +37,23 @@ class Test_Lookit_Media_Master_Capabilities extends WP_UnitTestCase {
 		$this->assertFalse( lmt_user_can_edit_attachment( $post ) );
 	}
 
+	public function test_attachment_queries_are_scoped_for_authors() {
+		$author = self::factory()->user->create( array( 'role' => 'author' ) );
+		wp_set_current_user( $author );
+
+		$this->assertSame(
+			$author,
+			lmt_scope_attachment_query_args( array( 'post_type' => 'attachment' ) )['author']
+		);
+
+		$admin = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin );
+		$this->assertArrayNotHasKey(
+			'author',
+			lmt_scope_attachment_query_args( array( 'post_type' => 'attachment' ) )
+		);
+	}
+
 	public function test_decode_accepts_png_and_rejects_garbage() {
 		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- fixture bytes.
 		$ok  = lmt_decode_image_data_uri( 'data:image/png;base64,' . base64_encode( $png ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI fixture.
