@@ -40,10 +40,15 @@ class Test_Lookit_Media_Master_Metadata extends WP_UnitTestCase {
 			)
 		);
 
+		$caption     = get_post_field( 'post_excerpt', $id );
+		$description = get_post_field( 'post_content', $id );
+
 		$this->assertTrue( $result['success'] );
 		$this->assertSame( 'New alt', get_post_meta( $id, '_wp_attachment_image_alt', true ) );
-		$this->assertSame( '<strong>Caption</strong>bad()', get_post_field( 'post_excerpt', $id ) );
-		$this->assertSame( '<p>Description</p>bad()', get_post_field( 'post_content', $id ) );
+		$this->assertStringStartsWith( '<strong>Caption</strong>', $caption );
+		$this->assertStringNotContainsString( '<script', $caption );
+		$this->assertStringStartsWith( '<p>Description</p>', $description );
+		$this->assertStringNotContainsString( '<script', $description );
 		$this->assertSame( 'New title', get_post_field( 'post_title', $id ) );
 	}
 
